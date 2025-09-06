@@ -28,6 +28,7 @@ type PersonalAgent struct {
 	ctx           context.Context
 	sessionID     string
 	sessionStart  time.Time
+	ciContext     string  // CI agent manifest context
 	conversationHistory []ConversationTurn
 	mutex         sync.RWMutex
 }
@@ -45,6 +46,7 @@ type AgentConfig struct {
 		Verbosity      string `yaml:"verbosity"`
 		UseEmojis      bool   `yaml:"use_emojis"`
 		ResponseFormat string `yaml:"response_format"`
+		QuietTerminal  bool   `yaml:"quiet_terminal"`
 	} `yaml:"personality"`
 	
 	Models struct {
@@ -54,6 +56,7 @@ type AgentConfig struct {
 	} `yaml:"models"`
 	
 	Integrations struct {
+		ManagerEndpoint   string `yaml:"manager_endpoint"`
 		CommanderEndpoint string `yaml:"commander_endpoint"`
 		LocalLLMEndpoint  string `yaml:"local_llm_endpoint"`
 		RedisEndpoint     string `yaml:"redis_endpoint"`
@@ -173,6 +176,9 @@ func NewPersonalAgent(configPath string) (*PersonalAgent, error) {
 	
 	agent.Orchestrator = &TaskOrchestrator{agent: agent}
 	
+	// Load CI agent context from protocol manifest
+	agent.loadCIContext()
+	
 	// Register with AGT-MANAGER-1 for singleton enforcement (if Redis available)
 	if agent.RedisClient != nil {
 		if err := agent.registerWithManager(); err != nil {
@@ -191,7 +197,10 @@ func (pa *PersonalAgent) ProcessUserInput(input string) (string, error) {
 	pa.mutex.Lock()
 	defer pa.mutex.Unlock()
 	
-	log.Printf("📥 Processing: %s", input)
+	// Always log to W/N streams, conditionally to terminal
+	if !pa.Config.Personality.QuietTerminal {
+		log.Printf("📥 Processing: %s", input)
+	}
 	
 	// Analyze input and create execution plan
 	plan, err := pa.Orchestrator.CreateExecutionPlan(input)
@@ -245,7 +254,9 @@ func (to *TaskOrchestrator) matchDecisionRules(input string) string {
 	for ruleType, rule := range to.agent.Config.DecisionRules {
 		for _, pattern := range rule.Patterns {
 			if strings.Contains(inputLower, strings.ToLower(pattern)) {
-				log.Printf("🎯 Rule match: %s → %s", ruleType, rule.Handler)
+				if !to.agent.Config.Personality.QuietTerminal {
+					log.Printf("🎯 Rule match: %s → %s", ruleType, rule.Handler)
+				}
 				return rule.Handler
 			}
 		}
@@ -274,13 +285,17 @@ func (to *TaskOrchestrator) createSmartPlan(userInput string) (*ExecutionPlan, e
 
 // ExecutePlan executes the tasks in the execution plan
 func (to *TaskOrchestrator) ExecutePlan(plan *ExecutionPlan) (string, error) {
-	log.Printf("🚀 Executing plan with %d tasks", len(plan.Tasks))
+	if !to.agent.Config.Personality.QuietTerminal {
+		log.Printf("🚀 Executing plan with %d tasks", len(plan.Tasks))
+	}
 	plan.Status = "executing"
 	
 	var finalResponse strings.Builder
 	
 	for i, task := range plan.Tasks {
-		log.Printf("📋 Executing task %d: %s (%s)", i+1, task.ID, task.Handler)
+		if !to.agent.Config.Personality.QuietTerminal {
+			log.Printf("📋 Executing task %d: %s (%s)", i+1, task.ID, task.Handler)
+		}
 		
 		startTime := time.Now()
 		task.StartTime = &startTime
@@ -293,7 +308,9 @@ func (to *TaskOrchestrator) ExecutePlan(plan *ExecutionPlan) (string, error) {
 		if err != nil {
 			task.Status = "failed"
 			task.Result = fmt.Sprintf("Error: %v", err)
-			log.Printf("❌ Task %s failed: %v", task.ID, err)
+			if !to.agent.Config.Personality.QuietTerminal {
+				log.Printf("❌ Task %s failed: %v", task.ID, err)
+			}
 			continue
 		}
 		
@@ -301,7 +318,7 @@ func (to *TaskOrchestrator) ExecutePlan(plan *ExecutionPlan) (string, error) {
 		task.Result = result
 		plan.Results[task.ID] = result
 		
-		log.Printf("✅ Task %s completed in %v", task.ID, duration)
+		// Skip completion timing - just continue
 		
 		// Add result to final response
 		if resultStr, ok := result.(string); ok {
@@ -379,14 +396,66 @@ func (to *TaskOrchestrator) executeConversationTask(task *Task) (interface{}, er
 	return to.queryOllama(to.agent.Config.Models.ConversationModel, input)
 }
 
+// loadCIContext loads agent information from the CI protocol file
+func (pa *PersonalAgent) loadCIContext() {
+	protocolPath := "../../DIR-SYS-1__genesis/claude-agent-protocol.yaml"
+	content, err := os.ReadFile(protocolPath)
+	if err != nil {
+		log.Printf("⚠️ Could not load CI protocol: %v (using basic context)", err)
+		pa.ciContext = "Basic CI system - System Commander and Local LLM agents available"
+		return
+	}
+	
+	// Extract key agent information for context
+	lines := strings.Split(string(content), "\n")
+	var activeAgents []string
+	inActiveSection := false
+	
+	for _, line := range lines {
+		if strings.Contains(line, "active_agents:") {
+			inActiveSection = true
+			continue
+		}
+		if inActiveSection && strings.HasPrefix(line, "  - id:") {
+			agentID := strings.Trim(strings.Split(line, ":")[1], " \"")
+			activeAgents = append(activeAgents, agentID)
+		}
+		if inActiveSection && !strings.HasPrefix(line, " ") && line != "" {
+			break
+		}
+	}
+	
+	pa.ciContext = fmt.Sprintf("Active CI agents: %s", strings.Join(activeAgents, ", "))
+}
+
 // queryOllama makes direct requests to Ollama
 func (to *TaskOrchestrator) queryOllama(model, prompt string) (string, error) {
+	systemPrompt := fmt.Sprintf(`You are %s, the Centerfire Intelligence orchestrator for autonomous software engineering.
+
+ROLE: Multi-agent task coordinator. Analyze requests and route to specialized CI agents.
+
+%s
+
+CAPABILITIES:
+- AGT-SYSTEM-COMMANDER-1: System commands, process management, file operations
+- AGT-LOCAL-LLM-1: Code analysis, documentation, intelligent file search
+- AGT-SEMANTIC-1: Knowledge queries, concept storage, similarity search
+- AGT-NAMING-1: Resource allocation, semantic naming
+- Direct conversation: Simple questions, explanations, status updates
+
+INSTRUCTIONS: Determine the best approach for each request. Route complex tasks to appropriate agents. Provide direct answers for simple queries.
+
+RESPONSE STYLE: %s verbosity, task-focused, no unnecessary explanation.
+
+User: %s`, 
+		to.agent.Config.AgentInfo.DisplayName,
+		to.agent.ciContext,
+		to.agent.Config.Personality.Verbosity,
+		prompt)
+
 	requestData := map[string]interface{}{
 		"model":  model,
-		"prompt": fmt.Sprintf("You are %s, a %s. Respond naturally and helpfully.\n\nUser: %s", 
-			to.agent.Config.AgentInfo.DisplayName,
-			to.agent.Config.Personality.Style,
-			prompt),
+		"prompt": systemPrompt,
 		"stream": false,
 	}
 	
@@ -455,7 +524,8 @@ func (cm *ConversationMemory) AddTurn(user, assistant string) {
 	}
 	
 	cm.history = append(cm.history, turn)
-	log.Printf("💾 Stored conversation turn")
+	// Always log to W/N - fix struct reference
+	log.Printf("💾 Stored conversation turn (W/N)")
 }
 
 // StartTerminalInterface starts the interactive terminal
@@ -558,7 +628,9 @@ func (pa *PersonalAgent) streamSessionEvent(eventType string) {
 		},
 	})
 	
-	log.Printf("📊 Streamed %s event for session %s", eventType, pa.sessionID)
+	if !pa.Config.Personality.QuietTerminal {
+		log.Printf("📊 Streamed %s event for session %s", eventType, pa.sessionID)
+	}
 }
 
 // Enhanced AddTurn with W/N streaming for conversation persistence

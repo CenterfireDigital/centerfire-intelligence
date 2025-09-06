@@ -9,10 +9,11 @@ agent_info:
 
 # Core Configuration
 personality:
-  style: "technical_assistant"  # technical_assistant, casual_friend, professional
-  verbosity: "balanced"         # concise, balanced, detailed
-  use_emojis: true
-  response_format: "conversational"
+  style: "centerfire_orchestrator"  # CI system orchestrator - direct, efficient
+  verbosity: "concise"              # concise, balanced, detailed
+  use_emojis: false
+  response_format: "direct"
+  quiet_terminal: false             # Show useful steps, skip timing details
 
 # Model Configuration  
 models:
@@ -27,6 +28,7 @@ models:
 
 # Integration Endpoints
 integrations:
+  manager_endpoint: "http://localhost:8380/agents"  # AGT-MANAGER-1 for agent discovery
   commander_endpoint: "http://localhost:8090/api/agents/system"
   local_llm_endpoint: "http://localhost:8090/api/agents/localllm"
   redis_endpoint: "localhost:6380"
@@ -42,8 +44,12 @@ orchestration:
 
 # Decision Rules (Fast Path)
 decision_rules:
+  system_analysis:
+    patterns: ["count", "analyze", "measure", "calculate", "total number", "how many"]
+    handler: "commander"
+    
   system_commands:
-    patterns: ["check if", "is running", "status of", "restart", "stop", "start"]
+    patterns: ["check if", "is running", "status of", "restart process", "stop service", "start service"]
     handler: "commander"
     
   file_operations:
@@ -54,13 +60,13 @@ decision_rules:
     patterns: ["remember when", "what did we discuss", "previous conversation"]
     handler: "knowledge_curator"
     
-  workflow_tasks:
-    patterns: ["todo", "task", "remind me", "organize", "plan"]
+  workflow_management:
+    patterns: ["create todo", "add task", "remind me to", "organize my", "plan my"]
     handler: "workflow_manager"
 
 # Conversation Flow
 conversation:
-  greeting_message: "Hello! I'm ${display_name}, your personal AI assistant. How can I help you today?"
+  greeting_message: "${display_name} ready. Centerfire Intelligence orchestrator online."
   context_window: 10  # Remember last 10 exchanges
   auto_save_conversations: true
   session_timeout_minutes: 60
