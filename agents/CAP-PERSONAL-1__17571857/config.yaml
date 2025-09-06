@@ -18,7 +18,7 @@ personality:
 # Model Configuration  
 models:
   conversation_model: "llama2:latest"    # Primary interface model
-  decision_model: "gemma:2b"             # Task routing decisions (fallback to rule-based)
+  decision_model: "mistral:7b-instruct"  # Task routing and command generation
   
   # Specialist models (inherited from AGT-LOCAL-LLM-1)
   specialists:

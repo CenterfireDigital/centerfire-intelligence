@@ -361,9 +361,16 @@ func (to *TaskOrchestrator) executeCommanderTask(task *Task) (interface{}, error
 		return nil, fmt.Errorf("invalid input parameter")
 	}
 	
+	// Use LLM to convert natural language intent to shell command
+	command, err := to.generateShellCommand(input)
+	if err != nil {
+		log.Printf("⚠️ LLM command generation failed, using fallback: %v", err)
+		command = input // Fallback to raw input
+	}
+	
 	requestData := map[string]interface{}{
 		"client_id":  "personal_agent",
-		"command":    input,
+		"command":    command,
 		"request_id": fmt.Sprintf("apollo_%d", time.Now().UnixNano()),
 	}
 	
@@ -394,6 +401,46 @@ func (to *TaskOrchestrator) executeConversationTask(task *Task) (interface{}, er
 	
 	// Use configured conversation model via direct Ollama call
 	return to.queryOllama(to.agent.Config.Models.ConversationModel, input)
+}
+
+// generateShellCommand converts natural language intent to shell command using LLM
+func (to *TaskOrchestrator) generateShellCommand(input string) (string, error) {
+	// Use decision model (gemma:2b) for lightweight command generation
+	model := to.agent.Config.Models.DecisionModel
+	if model == "" {
+		model = "gemma:2b" // Fallback
+	}
+
+	prompt := fmt.Sprintf(`Convert this natural language request to a single shell command. Return ONLY the command, no explanations.
+
+Request: %s
+
+Rules:
+- For counting files: use find . -name "*.ext" | wc -l
+- For listing files: use find . -name "*.ext" or ls
+- For system info: use appropriate commands like ps, df, etc.
+- For text operations: use grep, sed, awk as needed
+- Return only the bare command, no markdown or quotes
+
+Command:`, input)
+
+	response, err := to.queryOllama(model, prompt)
+	if err != nil {
+		return "", fmt.Errorf("ollama query failed: %v", err)
+	}
+
+	// Clean up response - remove any markdown, quotes, or extra text
+	command := strings.TrimSpace(response)
+	command = strings.Trim(command, "`\"'")
+	
+	// Extract just the command if there's extra text
+	lines := strings.Split(command, "\n")
+	if len(lines) > 0 {
+		command = strings.TrimSpace(lines[0])
+	}
+
+	log.Printf("🧠 LLM converted '%s' → '%s'", input, command)
+	return command, nil
 }
 
 // loadCIContext loads agent information from the CI protocol file
