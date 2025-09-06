@@ -220,14 +220,29 @@ func (a *SemanticAgent) validateEnvironment(env string) bool {
 	return false
 }
 
-// getNamespace - Get namespace from project and environment
+// getNamespace - Get semantic namespace from AGT-NAMING-1 instead of string concatenation
 func (a *SemanticAgent) getNamespace(project, env string) string {
+	// Call AGT-NAMING-1 for semantic namespace allocation
+	namespaceResponse := a.requestSemanticNamespace(project, env, "")
+	if namespace, ok := namespaceResponse["namespace"].(string); ok {
+		return namespace
+	}
+	
+	// Fallback to simple concatenation if naming agent fails
+	fmt.Printf("%s: Warning - AGT-NAMING-1 namespace request failed, using fallback\n", a.AgentID)
 	return fmt.Sprintf("%s.%s", project, env)
 }
 
-// getClassName - Generate namespaced class name (e.g., "Centerfire_Dev_Concept")
+// getClassName - Generate semantic className from AGT-NAMING-1 instead of string concatenation
 func (a *SemanticAgent) getClassName(project, env, classType string) string {
-	// Convert to title case and replace dots with underscores
+	// Call AGT-NAMING-1 for semantic namespace + className allocation
+	namespaceResponse := a.requestSemanticNamespace(project, env, classType)
+	if className, ok := namespaceResponse["className"].(string); ok {
+		return className
+	}
+	
+	// Fallback to simple concatenation if naming agent fails
+	fmt.Printf("%s: Warning - AGT-NAMING-1 className request failed, using fallback\n", a.AgentID)
 	projectTitle := strings.Title(strings.ToLower(project))
 	envTitle := strings.Title(strings.ToLower(env))
 	classTitle := strings.Title(strings.ToLower(classType))
@@ -257,6 +272,53 @@ func (a *SemanticAgent) generateNamespacedCID(project, env, conceptType string) 
 	ulid := fmt.Sprintf("%d%08X", now.Unix(), now.Nanosecond()%0xFFFFFFFF)[:8]
 	namespace := a.getNamespace(project, env)
 	return fmt.Sprintf("cid:%s:%s:%s", namespace, conceptType, ulid)
+}
+
+// requestSemanticNamespace - Request semantic namespace from AGT-NAMING-1 instead of string concatenation
+func (a *SemanticAgent) requestSemanticNamespace(project, environment, classType string) map[string]interface{} {
+	// Create request for AGT-NAMING-1
+	request := map[string]interface{}{
+		"from":   a.AgentID,
+		"action": "allocate_namespace",
+		"params": map[string]interface{}{
+			"project":     project,
+			"environment": environment,
+		},
+	}
+	
+	// Include class_type if provided
+	if classType != "" {
+		request["params"].(map[string]interface{})["class_type"] = classType
+	}
+	
+	// Send request to AGT-NAMING-1
+	requestData, _ := json.Marshal(request)
+	err := a.RedisClient.Publish(a.ctx, "agent.naming.request", requestData).Err()
+	if err != nil {
+		fmt.Printf("%s: Error sending request to AGT-NAMING-1: %v\n", a.AgentID, err)
+		return map[string]interface{}{}
+	}
+	
+	// Subscribe to response channel temporarily to get the response
+	pubsub := a.RedisClient.Subscribe(a.ctx, "agent.naming.response")
+	defer pubsub.Close()
+	
+	// Wait for response with timeout
+	ch := pubsub.Channel()
+	timeout := time.After(5 * time.Second)
+	
+	select {
+	case msg := <-ch:
+		var response map[string]interface{}
+		if err := json.Unmarshal([]byte(msg.Payload), &response); err != nil {
+			fmt.Printf("%s: Error parsing AGT-NAMING-1 response: %v\n", a.AgentID, err)
+			return map[string]interface{}{}
+		}
+		return response
+	case <-timeout:
+		fmt.Printf("%s: Timeout waiting for AGT-NAMING-1 response\n", a.AgentID)
+		return map[string]interface{}{}
+	}
 }
 
 // processMessage - Process incoming Redis message

@@ -60,7 +60,17 @@
       "Bash(brew uninstall:*)",
       "Bash(./test_namespace.sh:*)",
       "Bash(docker stop:*)",
-      "Bash(./session-manager create --type=claude_coding --context=\"Testing session management system\")"
+      "Bash(./session-manager create --type=claude_coding --context=\"Testing session management system\")",
+      "Bash(for id in 482007 593214 bb1e7b 80cfbc 0d3f0c 20e485 c896dc e51812 707d88 08dfa8 e86883 2f2971 ad22ab 38fd2a 558a73 6a0016 f9006b 13a64d 81f3c1 88de06 93729a 9c7e44)",
+      "Bash(for id in 482007 593214 bb1e7b 80cfbc 0d3f0c 20e485 c896dc e51812 707d88 08dfa8 e86883 2f2971 ad22ab 38fd2a 558a73 6a0016 f9006b 13a64d 81f3c1 88de06 93729a 9c7e44 3ebdd2)",
+      "Bash(do echo \"Killing background bash $id\")",
+      "Bash(docker start:*)",
+      "Bash(docker restart:*)",
+      "Bash(do)",
+      "Bash(echo \"Killed $id\")",
+      "Bash(echo:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

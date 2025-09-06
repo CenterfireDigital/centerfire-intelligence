@@ -42,6 +42,16 @@ type SemanticConceptEvent struct {
 	Namespace   string `json:"namespace"`
 }
 
+type SemanticNamespaceEvent struct {
+	EventType   string `json:"event_type"`
+	Namespace   string `json:"namespace"`
+	CID         string `json:"cid"`
+	Project     string `json:"project"`
+	Environment string `json:"environment"`
+	Sequence    int64  `json:"sequence"`
+	Allocated   string `json:"allocated"`
+}
+
 func NewStreamProcessor() *StreamProcessor {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6380",
@@ -79,6 +89,7 @@ func (sp *StreamProcessor) Start() {
 	// Start consuming from multiple streams
 	go sp.consumeSemanticNames(streamName, consumerGroup)
 	go sp.consumeSemanticConcepts("centerfire:semantic:concepts", consumerGroup)
+	go sp.consumeSemanticNamespaces("centerfire:semantic:namespaces", consumerGroup)
 
 	fmt.Println("Stream Processor ready - listening for semantic name events")
 	<-sigChan
@@ -221,6 +232,75 @@ func (sp *StreamProcessor) sendConceptToNeo4j(event SemanticConceptEvent) {
 	// TODO: Implement actual Neo4j client for concept storage
 	// For now, just log the operation
 	fmt.Printf("Neo4j: Created concept node for %s in namespace %s\n", event.Name, event.Namespace)
+}
+
+func (sp *StreamProcessor) consumeSemanticNamespaces(streamName, consumerGroup string) {
+	consumerName := "namespace-consumer-1"
+
+	for {
+		// Read from stream with consumer group
+		streams, err := sp.redisClient.XReadGroup(sp.ctx, &redis.XReadGroupArgs{
+			Group:    consumerGroup,
+			Consumer: consumerName,
+			Streams:  []string{streamName, ">"},
+			Count:    10,
+			Block:    time.Second * 5,
+		}).Result()
+
+		if err != nil {
+			if err != redis.Nil {
+				log.Printf("Error reading from namespace stream: %v", err)
+			}
+			continue
+		}
+
+		// Process each stream
+		for _, stream := range streams {
+			for _, message := range stream.Messages {
+				sp.processSemanticNamespaceEvent(message)
+				
+				// Acknowledge message
+				sp.redisClient.XAck(sp.ctx, streamName, consumerGroup, message.ID)
+			}
+		}
+	}
+}
+
+func (sp *StreamProcessor) processSemanticNamespaceEvent(message redis.XMessage) {
+	fmt.Printf("Processing semantic namespace event: %s\n", message.ID)
+	
+	// Extract event data
+	var event SemanticNamespaceEvent
+	if data, ok := message.Values["data"].(string); ok {
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			log.Printf("Error unmarshaling namespace event data: %v", err)
+			return
+		}
+	}
+
+	fmt.Printf("Namespace Event: %+v\n", event)
+
+	// Process to Weaviate
+	sp.sendNamespaceToWeaviate(event)
+	
+	// Process to Neo4j
+	sp.sendNamespaceToNeo4j(event)
+}
+
+func (sp *StreamProcessor) sendNamespaceToWeaviate(event SemanticNamespaceEvent) {
+	fmt.Printf("Sending namespace to Weaviate: %s (CID: %s)\n", event.Namespace, event.CID)
+	
+	// TODO: Implement actual Weaviate client for namespace creation
+	// For now, just log the operation
+	fmt.Printf("Weaviate: Created namespace schema for %s in project %s.%s\n", event.Namespace, event.Project, event.Environment)
+}
+
+func (sp *StreamProcessor) sendNamespaceToNeo4j(event SemanticNamespaceEvent) {
+	fmt.Printf("Sending namespace to Neo4j: %s (Project: %s)\n", event.Namespace, event.Project)
+	
+	// TODO: Implement actual Neo4j client for namespace relationship creation
+	// For now, just log the operation
+	fmt.Printf("Neo4j: Created namespace node for %s with semantic CID %s\n", event.Namespace, event.CID)
 }
 
 // PublishSemanticNameEvent - Utility to publish semantic name events to the stream

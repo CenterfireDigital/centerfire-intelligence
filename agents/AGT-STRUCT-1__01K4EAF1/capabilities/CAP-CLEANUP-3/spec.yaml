@@ -1,0 +1,24 @@
+name: CAP-CLEANUP-3
+cid: cid:centerfire:capability:17571335
+type: capability
+template: default_capability
+created: 2025-09-05T23:39:21-05:00
+description: "Auto-generated capability specification"
+
+# Capability specification
+spec:
+  domain: ""
+  purpose: ""
+  dependencies: []
+  interfaces: []
+  
+# Implementation details  
+implementation:
+  language: "go"
+  entry_point: "main.go"
+  
+# Metadata
+metadata:
+  version: "1.0.0"
+  author: "AGT-STRUCT-1"
+  tags: []

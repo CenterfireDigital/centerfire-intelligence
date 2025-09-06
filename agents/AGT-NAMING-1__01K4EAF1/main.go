@@ -116,6 +116,8 @@ func (a *NamingAgent) HandleRequest(request map[string]interface{}) map[string]i
 		return a.handleAllocateFunction(request)
 	case "allocate_session":
 		return a.handleAllocateSession(request)
+	case "allocate_namespace":
+		return a.handleAllocateNamespace(request)
 	case "validate_name":
 		return a.handleValidateName(request)
 	default:
@@ -322,6 +324,147 @@ func (a *NamingAgent) publishSemanticNameEvent(slug, cid, directory, domain, pur
 	}
 }
 
+// handleAllocateNamespace - Allocate semantic namespace names instead of string concatenation
+func (a *NamingAgent) handleAllocateNamespace(request map[string]interface{}) map[string]interface{} {
+	params, ok := request["params"].(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{"error": "No params provided"}
+	}
+	
+	project, ok := params["project"].(string)
+	if !ok {
+		return map[string]interface{}{"error": "Project required"}
+	}
+	
+	environment, ok := params["environment"].(string)
+	if !ok {
+		return map[string]interface{}{"error": "Environment required"}
+	}
+	
+	// Optional class type for className generation
+	classType, _ := params["class_type"].(string)
+	
+	// Generate semantic namespace name 
+	namespace := a.generateNamespaceID(project, environment)
+	
+	response := map[string]interface{}{
+		"namespace": namespace["namespace"],
+		"cid":       namespace["cid"],
+		"project":   project,
+		"environment": environment,
+	}
+	
+	// Generate className if requested
+	if classType != "" {
+		className := a.generateClassName(namespace["cid"].(string), classType)
+		response["className"] = className
+	}
+	
+	fmt.Printf("%s: Allocated semantic namespace: %s (CID: %s)\n", 
+		a.AgentID, namespace["namespace"], namespace["cid"])
+	
+	return response
+}
+
+// generateNamespaceID - Generate semantic namespace with CID instead of string concatenation
+func (a *NamingAgent) generateNamespaceID(project, environment string) map[string]interface{} {
+	// Get sequence from Redis for namespace allocation
+	sequenceKey := fmt.Sprintf("centerfire.%s.sequence:NS-%s", environment, strings.ToUpper(project))
+	sequence, err := a.RedisClient.Incr(a.ctx, sequenceKey).Result()
+	if err != nil {
+		fmt.Printf("Error getting namespace sequence from Redis: %v, using fallback\n", err)
+		sequence = 1
+	}
+	
+	// Generate ULID for uniqueness
+	now := time.Now()
+	ulid := fmt.Sprintf("%d%08X", now.Unix(), now.Nanosecond()%0xFFFFFFFF)[:8]
+	
+	// Create semantic namespace CID
+	cid := fmt.Sprintf("cid:%s:%s:namespace:%s", project, environment, ulid)
+	
+	// Use CID-based namespace instead of simple concatenation
+	namespace := fmt.Sprintf("%s.%s.ns%d", project, environment, sequence)
+	
+	// Store namespace allocation in Redis for tracking
+	nameKey := fmt.Sprintf("centerfire.%s.namespaces:%s", environment, namespace)
+	allocated := time.Now().Format(time.RFC3339)
+	namespaceData := map[string]interface{}{
+		"namespace":   namespace,
+		"cid":         cid,
+		"project":     project,
+		"environment": environment,
+		"sequence":    sequence,
+		"allocated":   allocated,
+	}
+	nameJSON, _ := json.Marshal(namespaceData)
+	a.RedisClient.Set(a.ctx, nameKey, nameJSON, 0) // No expiration
+	
+	// Publish semantic namespace event to stream for W/N consumers
+	a.publishSemanticNamespaceEvent(namespace, cid, project, environment, sequence, allocated)
+	
+	return map[string]interface{}{
+		"namespace": namespace,
+		"cid":       cid,
+		"project":   project,
+		"environment": environment,
+		"sequence":  sequence,
+	}
+}
+
+// generateClassName - Generate Weaviate className using semantic namespace CID
+func (a *NamingAgent) generateClassName(namespaceCID, classType string) string {
+	// Extract project and environment from CID for consistent naming
+	// Format: cid:project:environment:namespace:ulid
+	parts := strings.Split(namespaceCID, ":")
+	if len(parts) >= 3 {
+		project := strings.Title(strings.ToLower(parts[1]))
+		env := strings.Title(strings.ToLower(parts[2]))
+		class := strings.Title(strings.ToLower(classType))
+		return fmt.Sprintf("%s_%s_%s", project, env, class)
+	}
+	
+	// Fallback if CID parsing fails
+	class := strings.Title(strings.ToLower(classType))
+	return fmt.Sprintf("Semantic_%s", class)
+}
+
+// publishSemanticNamespaceEvent - Publish namespace allocation events to Redis streams
+func (a *NamingAgent) publishSemanticNamespaceEvent(namespace, cid, project, environment string, sequence int64, allocated string) {
+	streamName := "centerfire:semantic:namespaces"
+	
+	eventData := map[string]interface{}{
+		"namespace":   namespace,
+		"cid":         cid,
+		"project":     project,
+		"environment": environment,
+		"sequence":    sequence,
+		"allocated":   allocated,
+		"event_type":  "namespace_allocated",
+	}
+	
+	eventJSON, err := json.Marshal(eventData)
+	if err != nil {
+		fmt.Printf("%s: Error marshaling namespace event data: %v\n", a.AgentID, err)
+		return
+	}
+	
+	_, err = a.RedisClient.XAdd(a.ctx, &redis.XAddArgs{
+		Stream: streamName,
+		Values: map[string]interface{}{
+			"data":      string(eventJSON),
+			"timestamp": time.Now().Unix(),
+			"source":    a.AgentID,
+		},
+	}).Result()
+	
+	if err != nil {
+		fmt.Printf("%s: Error publishing to namespace stream: %v\n", a.AgentID, err)
+	} else {
+		fmt.Printf("%s: Published semantic namespace event to stream: %s\n", a.AgentID, namespace)
+	}
+}
+
 // Placeholder handlers
 func (a *NamingAgent) handleAllocateModule(request map[string]interface{}) map[string]interface{} {
 	return map[string]interface{}{"error": "Module allocation not implemented yet"}
@@ -336,12 +479,6 @@ func (a *NamingAgent) handleValidateName(request map[string]interface{}) map[str
 }
 
 func main() {
-	// Check if we're in test mode
-	if len(os.Args) > 1 && os.Args[1] == "test" {
-		testNaming()
-		return
-	}
-	
 	agent := NewAgent()
 	agent.Start()
 }

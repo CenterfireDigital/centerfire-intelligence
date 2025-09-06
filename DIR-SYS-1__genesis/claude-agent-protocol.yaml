@@ -82,41 +82,62 @@ active_agents:
   - id: "AGT-BOOTSTRAP-1"
     status: "genesis_complete"
     location: "agents/AGT-BOOTSTRAP-1__genesis/"
+    type: "ephemeral"
     
   - id: "AGT-NAMING-1" 
-    status: "tested_working_with_redis"
+    status: "enhanced_with_semantic_namespace_allocation"
     location: "agents/AGT-NAMING-1__01K4EAF1/"
-    capabilities: ["allocate_capability", "allocate_module", "manage_sequences"]
+    capabilities: ["allocate_capability", "allocate_module", "allocate_namespace", "manage_sequences"]
     integrations: ["Redis:6380"]
+    type: "persistent"
     
   - id: "AGT-STRUCT-1"
     status: "tested_working_with_redis"
     location: "agents/AGT-STRUCT-1__01K4EAF1/"
     capabilities: ["create_structure", "delegate_documentation"]
     integrations: ["Redis:6380"]
+    type: "persistent"
     
   - id: "AGT-SEMANTIC-1"
-    status: "tested_working_with_namespaces"
+    status: "updated_to_use_semantic_namespaces_from_AGT-NAMING-1"
     location: "agents/AGT-SEMANTIC-1__01K4EAF1/"
-    capabilities: ["semantic_similarity", "store_concept", "query_concepts"]
+    capabilities: ["semantic_similarity", "store_concept", "query_concepts", "request_semantic_namespaces"]
     integrations: ["Redis:6380", "Weaviate:8080"]
-    namespaces: ["centerfire.dev", "centerfire.test", "centerfire.prod"]
+    namespaces: ["semantic_CID_based_via_AGT-NAMING-1"]
+    type: "persistent"
+    
+  - id: "AGT-MANAGER-1"
+    status: "enhanced_with_agent_registry_and_ephemeral_lifecycle"
+    location: "agents/AGT-MANAGER-1__manager1/"
+    capabilities: ["singleton_enforcement", "collision_detection", "process_monitoring", "agent_registry", "ephemeral_spawning", "timeout_management"]
+    integrations: ["Redis:6380"]
+    type: "persistent"
+    
+  - id: "AGT-CLEANUP-1"
+    status: "deployed_and_tested"
+    location: "agents/AGT-CLEANUP-1__17571335/"
+    capabilities: ["cleanup_weaviate_classes", "cleanup_pre_semantic_data", "direct_cleanup_mode"]
+    integrations: ["Redis:6380", "Weaviate:8080", "Neo4j:7687"]
+    type: "ephemeral"
     
   - id: "AGT-SEMDOC-1"
     status: "created_not_tested"
     location: "agents/AGT-SEMDOC-1__01K4EAF1/"
+    type: "persistent"
     
   - id: "AGT-CODING-1"
     status: "created_not_tested"  
     location: "agents/AGT-CODING-1__01K4EAF1/"
+    type: "persistent"
 
-# DEVELOPMENT STATUS - REDIS STREAMS PIPELINE COMPLETE
+# DEVELOPMENT STATUS - AGENT MANAGEMENT + COLLISION DETECTION COMPLETE
 foundation_complete:
-  - "Agent ecosystem operational: AGT-NAMING-1, AGT-STRUCT-1, AGT-SEMANTIC-1"
+  - "Agent ecosystem operational: AGT-NAMING-1, AGT-STRUCT-1, AGT-SEMANTIC-1, AGT-MANAGER-1"
   - "Redis pub/sub delegation chain working end-to-end" 
   - "Semantic namespacing: centerfire.dev/test/prod isolation working"
   - "Auto-read hook installed for session continuity"
   - "COMPLETE: Redis Streams → W/N pipeline operational"
+  - "COMPLETE: Agent collision detection and singleton enforcement"
   - "Infrastructure cleaned: stopped unused mem0-postgres, mem0-qdrant"
   - "Session management utility: Redis-based with AGT-NAMING-1 delegation"
 
@@ -128,19 +149,47 @@ redis_streams_architecture_complete:
   - "End-to-end verified: concept storage flows Redis → Stream → W/N consumers"
   - "Architecture philosophy: Agents MONITOR infrastructure, streams ARE infrastructure"
 
+agent_collision_detection_complete:
+  - "AGT-MANAGER-1: Redis-based instance tracking with heartbeat monitoring"
+  - "Singleton enforcement: AGT-NAMING-1, AGT-SEMANTIC-1, AGT-STRUCT-1, AGT-MANAGER-1"
+  - "Instance keys: centerfire:agents:active:{agent_name} with collision prevention"
+  - "Automatic cleanup: Dead instance removal via 30-second heartbeat timeout"
+  - "Management commands: check_collisions, start_agent, stop_agent, restart_agent"
+  - "Process monitoring: Automatic registration/unregistration on start/exit"
+
 current_session_achievements:
-  - "CRITICAL: Eliminated direct Weaviate writes from AGT-SEMANTIC-1"
-  - "Stream processor handles both semantic names AND concept events"
-  - "Complete pub/sub → streams → W/N consumer pipeline working"
-  - "Redis sequences and name tracking implemented in AGT-NAMING-1"
+  - "COMPLETE: AGT-MANAGER-1 operational with full collision detection"
+  - "Singleton agent enforcement preventing duplicate instances"
+  - "Multi-project architecture analysis: Smart single-agent pool recommended"
+  - "COMPLETE: Semantic namespace gap closed - AGT-NAMING-1 now allocates semantic namespaces"
+  - "COMPLETE: AGT-SEMANTIC-1 updated to use semantic namespaces via AGT-NAMING-1 delegation"
+  - "COMPLETE: Stream processor enhanced with namespace event handling"
+  - "COMPLETE: Backfill utility created and executed - historical semantic data in W/N streams"
+  - "COMPLETE: AGT-CLEANUP-1 created and deployed - removed pre-semantic Weaviate classes"
+  - "Agent lifecycle architecture designed: Persistent vs Ephemeral agent classification"
   - "W/N shorthand established for Weaviate/Neo4j consumer references"
+  - "COMPLETE: Agent registry implemented in AGT-MANAGER-1 with 7 agent definitions"
+  - "COMPLETE: Ephemeral agent spawning and lifecycle management operational"
+  - "COMPLETE: Automatic timeout management and cleanup for ephemeral agents"
+  - "Memory-first agent registry with persistent/ephemeral classification system"
+  - "Session cleanup: Resolved duplicate background processes via session restart method"
+
+architectural_insights:
+  - "Multi-tenancy: Single-agent pool with project-aware routing > multiple instances"
+  - "Resource efficiency: One AGT-NAMING-1 can handle 10+ projects via namespacing"
+  - "Performance trade-off: Minimal routing overhead vs N×agents memory consumption"
+  - "Collision prevention: Critical for port conflicts and resource contention"
+  - "RESOLVED: Semantic gap - All namespaces now use semantic CIDs via AGT-NAMING-1"
+  - "Agent lifecycle: Persistent (core services) vs Ephemeral (task-specific) classification"
+  - "Memory-first state management: Fast active agent tracking with Redis backup for recovery"
+  - "Data lifecycle: TTL policies vary by namespace - semantic names permanent, sessions 24hr"
 
 next_priorities:
-  - create_AGT-MANAGER-1_for_graceful_agent_restart_and_session_management
-  - backfill_existing_semantic_names_to_W/N_via_streams
-  - update_AGT-NAMING-1_with_PROJECT.ENV.TYPE_pattern
   - create_AGT-GRAPH-1_for_neo4j_relationships
   - implement_actual_W/N_clients_in_stream_processor
+  - add_project_context_registration_to_AGT-MANAGER-1
+  - enhance_ephemeral_agents_with_task_result_reporting
+  - implement_agent_dependency_management_and_startup_ordering
 
 # INFRASTRUCTURE STATUS  
 active_databases:
