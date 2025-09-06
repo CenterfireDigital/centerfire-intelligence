@@ -24,6 +24,10 @@ access_permissions:
     system:
       actions: ["execute_command"]
       description: "Secure system command execution with contract validation"
+      
+    localllm:
+      actions: ["file_search", "weaviate_query", "todo_update", "general_query"]
+      description: "Local LLM processing for platform-independent AI operations"
 
   # Agents Claude Code cannot access
   forbidden_agents: 

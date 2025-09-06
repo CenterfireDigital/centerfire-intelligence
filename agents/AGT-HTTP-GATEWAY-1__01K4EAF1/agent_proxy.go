@@ -92,6 +92,9 @@ func (ap *AgentProxy) ForwardToAgent(agent, action string, data map[string]inter
 	case "system":
 		requestChannel = "agent.system.request"
 		responseChannel = "agent.system.response"
+	case "localllm":
+		requestChannel = "agent.localllm.request"
+		responseChannel = "agent.localllm.response"
 	default:
 		return nil, fmt.Errorf("unknown agent: %s", agent)
 	}

@@ -74,7 +74,10 @@
       "Bash(cargo --version)",
       "Bash(./start-agents.sh:*)",
       "Bash(pwdx:*)",
-      "Bash(./gateway)"
+      "Bash(./gateway)",
+      "Bash(for id in 504865 377c41 4288d7 1e44eb 9d83f2 6259e7 d52be1 9bbdad 88c662)",
+      "Bash(tmux list-sessions:*)",
+      "Bash(ollama list:*)"
     ],
     "deny": [],
     "ask": []

@@ -390,8 +390,8 @@ func (am *AgentManager) handleRegisterRunning(request AgentRequest) {
 		AgentType:     PersistentAgent, // Assume persistent for externally started agents
 	}
 	
-	// Store in Redis for persistence across manager restarts
-	am.storeAgentInRedis(agentName, pid)
+	// Store full session data in Redis for persistence across manager restarts
+	am.storeAgentInRedis(agentName, request.SessionData)
 }
 
 // handleUnregisterRunning - Unregister agent from running state
@@ -1012,13 +1012,19 @@ func (am *AgentManager) isProcessRunning(pid int) bool {
 }
 
 // storeAgentInRedis persists agent information to Redis for crash recovery
-func (am *AgentManager) storeAgentInRedis(agentName string, pid int) {
+func (am *AgentManager) storeAgentInRedis(agentName string, sessionData map[string]interface{}) {
 	key := fmt.Sprintf("centerfire:agents:running:%s", agentName)
+	
+	// Merge session data with manager metadata
 	data := map[string]interface{}{
 		"name":       agentName,
-		"pid":        pid,
 		"start_time": time.Now().Unix(),
 		"manager_id": am.managerID,
+	}
+	
+	// Add all session data (includes pid, port, type, endpoints, etc.)
+	for k, v := range sessionData {
+		data[k] = v
 	}
 	
 	dataJson, _ := json.Marshal(data)

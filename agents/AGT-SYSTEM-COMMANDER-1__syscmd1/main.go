@@ -44,10 +44,12 @@ type Shell struct {
 	ID          string
 	SessionName string
 	ClientID    string
-	Purpose     string    // "general", "build", "monitor", etc.
+	Purpose     string    // "general", "build", "monitor", "conversation_logging", etc.
 	Created     time.Time
 	LastUsed    time.Time
 	State       ShellState
+	LastLoggedLine int      // Track last conversation line sent to streams
+	MonitoringEnabled bool  // Whether to monitor for conversation logging
 	Busy        bool      // Currently executing a command
 	mutex       sync.RWMutex
 }
@@ -540,6 +542,31 @@ func (sc *SystemCommander) handleRequest(payload string) {
 		sc.RedisClient.Publish(sc.ctx, "agent.system.response", string(responseData))
 		return
 	}
+	
+	// Handle conversation monitoring commands
+	if strings.HasPrefix(req.Command, "__monitor_conversations__") {
+		log.Printf("Conversation monitoring request from %s", req.ClientID)
+		parts := strings.Fields(req.Command)
+		var response CommandResponse
+		if len(parts) > 1 {
+			sessionName := parts[1]
+			sc.enableConversationMonitoring(sessionName)
+			response = CommandResponse{
+				Success:   true,
+				Output:    fmt.Sprintf("Conversation monitoring enabled for session: %s", sessionName),
+				RequestID: req.RequestID,
+			}
+		} else {
+			response = CommandResponse{
+				Success:   false,
+				Error:     "Session name required: __monitor_conversations__ <session_name>",
+				RequestID: req.RequestID,
+			}
+		}
+		responseData, _ := json.Marshal(response)
+		sc.RedisClient.Publish(sc.ctx, "agent.system.response", string(responseData))
+		return
+	}
 
 	log.Printf("Executing command for %s: %s (mode: %s)", req.ClientID, req.Command, req.Mode)
 	log.Printf("DEBUG: Command length: %d, Command: '%s'", len(req.Command), req.Command)
@@ -703,6 +730,113 @@ func (sc *SystemCommander) registerWithManager() {
 	log.Printf("Registered %s with manager", sc.agentID)
 }
 
+// Conversation monitoring functionality
+func (sc *SystemCommander) startConversationMonitor() {
+	log.Println("Starting conversation monitor for W/N streaming...")
+	go func() {
+		ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ticker.C:
+				sc.monitorAllSessions()
+			case <-sc.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (sc *SystemCommander) monitorAllSessions() {
+	sc.shellPool.mutex.RLock()
+	defer sc.shellPool.mutex.RUnlock()
+	
+	for _, shell := range sc.shellPool.shells {
+		if shell.MonitoringEnabled {
+			sc.extractConversationFromSession(shell)
+		}
+	}
+}
+
+func (sc *SystemCommander) extractConversationFromSession(shell *Shell) {
+	// Capture tmux session content
+	cmd := exec.Command("tmux", "capture-pane", "-t", shell.SessionName, "-p")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("Error capturing session %s: %v", shell.SessionName, err)
+		return
+	}
+	
+	lines := strings.Split(string(output), "\n")
+	
+	// Only process new lines since last check
+	if len(lines) > shell.LastLoggedLine {
+		newLines := lines[shell.LastLoggedLine:]
+		
+		// Filter out empty lines and system prompts
+		conversationChunk := ""
+		for _, line := range newLines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "larrydiffey@") && !strings.HasPrefix(line, ">_") {
+				conversationChunk += line + "\n"
+			}
+		}
+		
+		if conversationChunk != "" {
+			sc.streamConversationChunk(shell.ClientID, shell.SessionName, conversationChunk)
+			shell.LastLoggedLine = len(lines)
+		}
+	}
+}
+
+func (sc *SystemCommander) streamConversationChunk(clientID, sessionName, chunk string) {
+	// Create conversation stream entry
+	conversationData := map[string]interface{}{
+		"session_id": sessionName,
+		"client_id": clientID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"content": chunk,
+		"type": "conversation_chunk",
+		"source": "tmux_monitor",
+	}
+	
+	dataBytes, err := json.Marshal(conversationData)
+	if err != nil {
+		log.Printf("Error marshaling conversation data: %v", err)
+		return
+	}
+	
+	// Send to Redis stream for W/N consumers
+	streamKey := "centerfire:conversations"
+	_, err = sc.RedisClient.XAdd(sc.ctx, &redis.XAddArgs{
+		Stream: streamKey,
+		Values: map[string]interface{}{
+			"data": string(dataBytes),
+		},
+	}).Result()
+	
+	if err != nil {
+		log.Printf("Error adding to conversation stream: %v", err)
+	} else {
+		log.Printf("📝 Streamed conversation chunk from %s (%d chars)", sessionName, len(chunk))
+	}
+}
+
+// Enable conversation monitoring for specific sessions
+func (sc *SystemCommander) enableConversationMonitoring(sessionName string) {
+	sc.shellPool.mutex.Lock()
+	defer sc.shellPool.mutex.Unlock()
+	
+	for _, shell := range sc.shellPool.shells {
+		if shell.SessionName == sessionName {
+			shell.MonitoringEnabled = true
+			log.Printf("📊 Enabled conversation monitoring for session: %s", sessionName)
+			break
+		}
+	}
+}
+
 func main() {
 	log.Println("Starting AGT-SYSTEM-COMMANDER-1...")
 
@@ -714,7 +848,10 @@ func main() {
 	// Start session cleanup routine
 	sc.startCleanupRoutine()
 	
+	// Start conversation monitoring for W/N streaming
+	sc.startConversationMonitor()
+	
 	// Start listening for commands
-	log.Println("System Commander ready for secure command execution")
+	log.Println("System Commander ready for secure command execution and conversation logging")
 	sc.startListener()
 }
