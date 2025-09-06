@@ -1,0 +1,109 @@
+# Claude Agent Protocol Directives
+# CRITICAL: Read this file in every new session to understand agent architecture
+
+version: "1.0"
+directive_type: "agent_protocol"
+last_updated: "2025-09-06T01:40:00Z"
+
+# CORE PRINCIPLE: Everything goes through agents
+never_create_directly:
+  - directories (ask AGT-STRUCT-1)
+  - names (ask AGT-NAMING-1) 
+  - documentation (ask AGT-SEMDOC-1)
+  - code (ask AGT-CODING-1)
+
+# NAMING PROTOCOL
+naming_rules:
+  pattern: "TYPE-DOMAIN-N__ULID8"
+  no_zero_padding: true  # CAP-AUTH-1 not CAP-AUTH-001
+  examples:
+    agents: "AGT-NAMING-1__01K4EAF1"
+    capabilities: "CAP-AUTH-2__01K4EAF3" 
+    documentation: "DOC-ARCH-1__genesis"
+    directives: "DIR-SYS-1__genesis"
+    files: "FIL-SPEC-1__agent.yaml"
+
+# AGENT DELEGATION CHAIN
+workflow:
+  human_request: |
+    1. Human: "Create authentication capability"
+    2. Claude asks AGT-NAMING-1: allocate_capability("AUTH", "user authentication")
+    3. AGT-NAMING-1 returns: CAP-AUTH-2__01K4EAF3
+    4. AGT-NAMING-1 delegates to AGT-STRUCT-1: create_structure
+    5. AGT-STRUCT-1 creates directories and files
+    6. AGT-STRUCT-1 delegates to AGT-SEMDOC-1: create_documentation
+    7. All agents report completion back to Claude
+    8. Claude reports to human: "CAP-AUTH-2 ready"
+
+# FILE NAMING SPECIFICATION
+file_naming:
+  semantic_files:
+    specs: "FIL-SPEC-N__name.yaml"
+    contracts: "FIL-CONTRACT-N__name.yaml" 
+    schemas: "FIL-SCHEMA-N__name.json"
+    logs: "FIL-LOG-N__YYYYMMDD.log"
+    archives: "FIL-ARCHIVE-N__backup.tar.gz"
+    
+  standard_files:  # Keep normal naming
+    source_code: ["main.go", "package.json", "index.ts", "app.py"]
+    build_outputs: ["dist/", "build/", "target/"]
+    temp_files: ["/tmp/*", "*.tmp", ".cache/"]
+    system_files: [".git/", ".env", "Dockerfile"]
+
+# AGENT COMMUNICATION
+redis_channels:
+  naming: "agent.naming.request"
+  structure: "agent.struct.request" 
+  coding: "agent.coding.request"
+  documentation: "agent.semdoc.request"
+
+# CURRENT AGENT STATUS
+active_agents:
+  - id: "AGT-BOOTSTRAP-1"
+    status: "genesis_complete"
+    location: "agents/AGT-BOOTSTRAP-1__genesis/"
+    
+  - id: "AGT-NAMING-1" 
+    status: "tested_working"
+    location: "agents/AGT-NAMING-1__01K4EAF1/"
+    capabilities: ["allocate_capability", "allocate_module", "manage_sequences"]
+    
+  - id: "AGT-STRUCT-1"
+    status: "created_not_tested"
+    location: "agents/AGT-STRUCT-1__01K4EAF1/"
+    
+  - id: "AGT-SEMDOC-1"
+    status: "created_not_tested"
+    location: "agents/AGT-SEMDOC-1__01K4EAF1/"
+    
+  - id: "AGT-CODING-1"
+    status: "created_not_tested"  
+    location: "agents/AGT-CODING-1__01K4EAF1/"
+
+# NEXT DEVELOPMENT STEPS
+todo:
+  - implement_agent_delegation_in_AGT-NAMING-1
+  - connect_agents_to_redis_pubsub
+  - test_full_delegation_chain
+  - build_first_capability_using_agents
+
+# CRITICAL REMINDERS FOR CLAUDE
+claude_instructions: |
+  ALWAYS read this file first in new sessions.
+  NEVER create directories directly - ask AGT-STRUCT-1
+  NEVER generate names directly - ask AGT-NAMING-1  
+  NEVER write code directly - ask AGT-CODING-1
+  
+  The system is AGENT-ORIENTED, not service-oriented.
+  Every operation flows through specialized agents.
+  
+  If agents aren't responding, check if they're running:
+  cd agents/AGT-NAMING-1__01K4EAF1 && go run main.go
+
+# SESSION RECOVERY PROTOCOL
+recovery_steps:
+  - read_this_directives_file
+  - check_agent_status_in_agents_directory  
+  - start_required_agents
+  - test_agent_communication
+  - proceed_with_development
