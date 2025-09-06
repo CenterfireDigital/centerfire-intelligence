@@ -173,6 +173,9 @@ current_session_achievements:
   - "COMPLETE: Automatic timeout management and cleanup for ephemeral agents"
   - "Memory-first agent registry with persistent/ephemeral classification system"
   - "Session cleanup: Resolved duplicate background processes via session restart method"
+  - "COMPLETE: HTTP Gateway dynamic port allocation and service discovery architecture"
+  - "COMPLETE: AGT-MANAGER-1 HTTP service discovery endpoints on port 8380"
+  - "COMPLETE: External service discovery flow - well-known endpoint solves bootstrap problem"
 
 architectural_insights:
   - "Multi-tenancy: Single-agent pool with project-aware routing > multiple instances"
@@ -183,6 +186,9 @@ architectural_insights:
   - "Agent lifecycle: Persistent (core services) vs Ephemeral (task-specific) classification"
   - "Memory-first state management: Fast active agent tracking with Redis backup for recovery"
   - "Data lifecycle: TTL policies vary by namespace - semantic names permanent, sessions 24hr"
+  - "Service discovery architecture: Well-known manager endpoint (8380) → dynamic gateway discovery"
+  - "External service bootstrap: Single discovery endpoint solves Chrome plugin / web UI integration"
+  - "Universal Agent Platform foundation: Ready for SFTP, web search, Puppeteer, S3, system agents"
 
 next_priorities:
   - create_AGT-GRAPH-1_for_neo4j_relationships

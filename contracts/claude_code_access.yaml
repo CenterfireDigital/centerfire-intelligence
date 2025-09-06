@@ -1,0 +1,53 @@
+# Claude Code Access Contract (SemDoc Placeholder)
+# Defines what agents and actions Claude Code can access via HTTP Gateway
+
+client_id: claude_code
+version: "1.0"
+created: "2025-01-15T10:00:00Z"
+description: "Access permissions for Claude Code agent interactions"
+
+# Access Control
+access_permissions:
+  allowed_agents:
+    naming:
+      actions: ["allocate_capability", "allocate_module", "allocate_namespace", "get_sequences"]
+      description: "Semantic naming and identifier allocation"
+    
+    struct:
+      actions: ["create_structure", "delegate_documentation", "validate_structure"]  
+      description: "Directory and file structure management"
+      
+    semantic:
+      actions: ["store_concept", "query_concepts", "semantic_similarity", "get_namespaces"]
+      description: "Semantic analysis and concept storage"
+
+  # Agents Claude Code cannot access
+  forbidden_agents: 
+    - manager    # System management - too privileged
+    - cleanup    # Ephemeral cleanup tasks
+    - diagnostic # System diagnostics (when implemented)
+
+# Rate Limiting
+rate_limits:
+  requests_per_minute: 100
+  burst_limit: 10
+  concurrent_requests: 5
+
+# Security Settings  
+security:
+  authentication: "api_key"
+  authorization: "contract_based"
+  require_https: false  # For development, true for production
+  
+# Request/Response Format
+protocol:
+  request_format: "json"
+  response_format: "json"
+  timeout_seconds: 30
+  retry_attempts: 3
+
+# Logging and Monitoring
+monitoring:
+  log_requests: true
+  log_responses: false  # May contain sensitive data
+  track_usage_metrics: true

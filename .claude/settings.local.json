@@ -73,7 +73,8 @@
       "Bash(ls:*)",
       "Bash(cargo --version)",
       "Bash(./start-agents.sh:*)",
-      "Bash(pwdx:*)"
+      "Bash(pwdx:*)",
+      "Bash(./gateway)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,54 @@
+# Web UI Access Contract (SemDoc Placeholder)
+# Limited access for web-based interfaces
+
+client_id: web_ui
+version: "1.0"
+created: "2025-01-15T10:00:00Z"
+description: "Limited read-only access for web interfaces"
+
+# Access Control - Read-only operations
+access_permissions:
+  allowed_agents:
+    naming:
+      actions: ["get_sequences", "query_capability"]
+      description: "Read-only naming queries"
+      
+    struct:
+      actions: ["validate_structure", "get_structure_info"] 
+      description: "Structure validation and info"
+      
+    semantic:
+      actions: ["query_concepts", "semantic_similarity"]
+      description: "Read-only semantic queries"
+
+  # Web UI cannot access system management
+  forbidden_agents:
+    - manager
+    - cleanup
+    - diagnostic
+
+# Conservative rate limits for web traffic
+rate_limits:
+  requests_per_minute: 50
+  burst_limit: 5
+  concurrent_requests: 3
+
+# Security for web access
+security:
+  authentication: "jwt_token"
+  authorization: "contract_based"
+  require_https: true
+  cors_enabled: true
+  
+# Protocol settings
+protocol:
+  request_format: "json"
+  response_format: "json"
+  timeout_seconds: 15
+  retry_attempts: 1
+
+# Full logging for web access
+monitoring:
+  log_requests: true
+  log_responses: true
+  track_usage_metrics: true

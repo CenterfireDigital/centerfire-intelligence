@@ -244,19 +244,33 @@ func (a *NamingAgent) HandleRequest(request map[string]interface{}) map[string]i
 
 // handleAllocateCapability - Allocate new capability name and delegate structure creation
 func (a *NamingAgent) handleAllocateCapability(request map[string]interface{}) map[string]interface{} {
+	// Helper function to create error response with request_id
+	createErrorResponse := func(errorMsg string) map[string]interface{} {
+		response := map[string]interface{}{"error": errorMsg}
+		if requestID, ok := request["request_id"].(string); ok && requestID != "" {
+			response["request_id"] = requestID
+		}
+		return response
+	}
+	
 	params, ok := request["params"].(map[string]interface{})
 	if !ok {
-		return map[string]interface{}{"error": "No params provided"}
+		return createErrorResponse("No params provided")
 	}
 	
 	domain, ok := params["domain"].(string)
 	if !ok {
-		return map[string]interface{}{"error": "Domain required"}
+		return createErrorResponse("Domain required")
 	}
 	
+	// Accept either "purpose" or "description" for flexibility
 	purpose, ok := params["purpose"].(string)
 	if !ok {
-		purpose = "Generated capability"
+		if desc, ok := params["description"].(string); ok {
+			purpose = desc
+		} else {
+			purpose = "Generated capability"
+		}
 	}
 	
 	// Generate name (this is what naming agent does)
@@ -284,6 +298,11 @@ func (a *NamingAgent) handleAllocateCapability(request map[string]interface{}) m
 		fmt.Printf("%s: Error delegating to AGT-STRUCT-1: %v\n", a.AgentID, err)
 	} else {
 		fmt.Printf("%s: Delegated to AGT-STRUCT-1 via Redis\n", a.AgentID)
+	}
+	
+	// Include request_id in response if provided
+	if requestID, ok := request["request_id"].(string); ok && requestID != "" {
+		capability["request_id"] = requestID
 	}
 	
 	return capability

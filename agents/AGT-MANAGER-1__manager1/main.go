@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 	
+	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -24,6 +26,7 @@ type AgentManager struct {
 	runningAgents map[string]*AgentProcess // PID-based tracking of running agents
 	heartbeatInterval time.Duration // How often to expect heartbeats
 	heartbeatTimeout  time.Duration // When to consider an agent dead
+	httpServer *http.Server // HTTP server for service discovery
 }
 
 type AgentProcess struct {
@@ -106,6 +109,9 @@ func (am *AgentManager) Start() {
 	}
 	fmt.Println("Connected to Redis successfully")
 
+	// Start HTTP server for service discovery
+	am.startHTTPServer()
+
 	// Subscribe to agent management requests
 	pubsub := am.RedisClient.Subscribe(am.ctx, "centerfire:agent:manager")
 	defer pubsub.Close()
@@ -118,6 +124,7 @@ func (am *AgentManager) Start() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	fmt.Printf("%s ready - listening for agent management requests\n", am.AgentID)
+	fmt.Printf("%s HTTP discovery service: http://localhost:8380/api/services\n", am.AgentID)
 
 	for {
 		select {
@@ -937,6 +944,13 @@ func (am *AgentManager) shutdown() {
 		am.stopAgentProcess(process)
 	}
 	
+	// Shutdown HTTP server
+	if am.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		am.httpServer.Shutdown(ctx)
+	}
+	
 	am.RedisClient.Close()
 	fmt.Printf("%s: Shutdown complete\n", am.AgentID)
 }
@@ -1068,4 +1082,253 @@ func (am *AgentManager) checkAgentHealth() {
 			}
 		}
 	}
+}
+
+// HTTP Service Discovery Methods
+
+// startHTTPServer starts the HTTP server for external service discovery
+func (am *AgentManager) startHTTPServer() {
+	router := mux.NewRouter()
+	
+	// Service discovery endpoints
+	api := router.PathPrefix("/api").Subrouter()
+	api.Use(am.corsMiddleware)
+	
+	// Main service discovery endpoint
+	api.HandleFunc("/services", am.handleServicesDiscovery).Methods("GET")
+	api.HandleFunc("/services/{service_name}", am.handleServiceDiscovery).Methods("GET")
+	
+	// Agent status endpoints
+	api.HandleFunc("/agents", am.handleAgentsStatus).Methods("GET")
+	api.HandleFunc("/agents/{agent_name}", am.handleAgentStatusHTTP).Methods("GET")
+	
+	// Health endpoint
+	api.HandleFunc("/health", am.handleHealth).Methods("GET")
+	
+	// Root endpoint
+	router.HandleFunc("/", am.handleRoot).Methods("GET")
+	
+	// Create HTTP server
+	am.httpServer = &http.Server{
+		Addr:         ":8380",
+		Handler:      router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+	
+	// Start server in background
+	go func() {
+		fmt.Printf("%s: HTTP discovery service starting on port 8380\n", am.AgentID)
+		if err := am.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("%s: HTTP server error: %v\n", am.AgentID, err)
+		}
+	}()
+}
+
+// handleServicesDiscovery returns all available services
+func (am *AgentManager) handleServicesDiscovery(w http.ResponseWriter, r *http.Request) {
+	services := make(map[string]interface{})
+	
+	// Find HTTP Gateway service
+	for agentName, agentProcess := range am.runningAgents {
+		if agentName == "AGT-HTTP-GATEWAY-1" {
+			services["http-gateway"] = am.getAgentServiceInfo(agentName, agentProcess)
+		}
+	}
+	
+	response := map[string]interface{}{
+		"success":     true,
+		"services":    services,
+		"manager_id":  am.managerID,
+		"timestamp":   time.Now(),
+		"total_count": len(services),
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleServiceDiscovery returns specific service information
+func (am *AgentManager) handleServiceDiscovery(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serviceName := vars["service_name"]
+	
+	var agentName string
+	switch serviceName {
+	case "http-gateway":
+		agentName = "AGT-HTTP-GATEWAY-1"
+	default:
+		// Try direct agent name lookup
+		agentName = serviceName
+	}
+	
+	if agentProcess, exists := am.runningAgents[agentName]; exists {
+		serviceInfo := am.getAgentServiceInfo(agentName, agentProcess)
+		response := map[string]interface{}{
+			"success":    true,
+			"service":    serviceInfo,
+			"manager_id": am.managerID,
+			"timestamp":  time.Now(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Service '%s' not found", serviceName),
+			"timestamp": time.Now(),
+		})
+	}
+}
+
+// getAgentServiceInfo extracts service information from agent process data
+func (am *AgentManager) getAgentServiceInfo(agentName string, agentProcess *AgentProcess) map[string]interface{} {
+	// Try to get stored session data which contains endpoints
+	key := fmt.Sprintf("centerfire:agents:running:%s", agentName)
+	stored, err := am.RedisClient.Get(am.ctx, key).Result()
+	
+	serviceInfo := map[string]interface{}{
+		"name":          agentName,
+		"status":        "online",
+		"pid":           agentProcess.PID,
+		"start_time":    agentProcess.StartTime,
+		"last_heartbeat": agentProcess.LastHeartbeat,
+		"type":          agentProcess.AgentType,
+	}
+	
+	if err == nil {
+		var storedData map[string]interface{}
+		if json.Unmarshal([]byte(stored), &storedData) == nil {
+			// Add any additional data from stored info
+			if port, ok := storedData["port"]; ok {
+				serviceInfo["port"] = port
+			}
+			if stype, ok := storedData["type"]; ok {
+				serviceInfo["service_type"] = stype
+			}
+			if endpoints, ok := storedData["endpoints"]; ok {
+				serviceInfo["endpoints"] = endpoints
+			}
+		}
+	}
+	
+	return serviceInfo
+}
+
+// handleAgentsStatus returns status of all running agents
+func (am *AgentManager) handleAgentsStatus(w http.ResponseWriter, r *http.Request) {
+	agents := make(map[string]interface{})
+	
+	for name, process := range am.runningAgents {
+		agents[name] = map[string]interface{}{
+			"name":           name,
+			"status":         "online",
+			"pid":            process.PID,
+			"start_time":     process.StartTime,
+			"last_heartbeat": process.LastHeartbeat,
+			"type":           process.AgentType,
+			"task_id":        process.TaskID,
+		}
+	}
+	
+	response := map[string]interface{}{
+		"success":     true,
+		"agents":      agents,
+		"manager_id":  am.managerID,
+		"timestamp":   time.Now(),
+		"total_count": len(agents),
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleAgentStatusHTTP returns status of specific agent (alias for service discovery)
+func (am *AgentManager) handleAgentStatusHTTP(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	agentName := vars["agent_name"]
+	
+	if agentProcess, exists := am.runningAgents[agentName]; exists {
+		agentInfo := map[string]interface{}{
+			"name":           agentName,
+			"status":         "online",
+			"pid":            agentProcess.PID,
+			"start_time":     agentProcess.StartTime,
+			"last_heartbeat": agentProcess.LastHeartbeat,
+			"type":           agentProcess.AgentType,
+			"task_id":        agentProcess.TaskID,
+		}
+		
+		response := map[string]interface{}{
+			"success":   true,
+			"agent":     agentInfo,
+			"manager_id": am.managerID,
+			"timestamp": time.Now(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Agent '%s' not found", agentName),
+			"timestamp": time.Now(),
+		})
+	}
+}
+
+// handleHealth returns manager health status
+func (am *AgentManager) handleHealth(w http.ResponseWriter, r *http.Request) {
+	response := map[string]interface{}{
+		"success":      true,
+		"status":       "healthy",
+		"manager_id":   am.managerID,
+		"agents_count": len(am.runningAgents),
+		"uptime":       time.Since(time.Unix(0, 0)), // Rough uptime
+		"timestamp":    time.Now(),
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleRoot returns discovery service information
+func (am *AgentManager) handleRoot(w http.ResponseWriter, r *http.Request) {
+	response := map[string]interface{}{
+		"service":     "AGT-MANAGER-1 Service Discovery",
+		"description": "HTTP endpoint for discovering agent services and status",
+		"version":     "1.0",
+		"manager_id":  am.managerID,
+		"endpoints": map[string]string{
+			"health":             "/health",
+			"services":           "/api/services",
+			"service_discovery": "/api/services/{service_name}",
+			"agents":             "/api/agents",
+			"agent_status":       "/api/agents/{agent_name}",
+		},
+		"timestamp": time.Now(),
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// corsMiddleware adds CORS headers for cross-origin requests
+func (am *AgentManager) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }
