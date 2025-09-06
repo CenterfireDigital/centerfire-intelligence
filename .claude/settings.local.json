@@ -70,7 +70,8 @@
       "Bash(echo \"Killed $id\")",
       "Bash(echo:*)",
       "Bash(find:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cargo --version)"
     ],
     "deny": [],
     "ask": []
