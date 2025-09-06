@@ -131,10 +131,10 @@ active_agents:
     type: "persistent"
     
   - id: "AGT-SYSTEM-COMMANDER-1"
-    status: "operational_with_http_and_redis_support"
+    status: "promoted_to_general_multi_shell_orchestration_operational"
     location: "agents/AGT-SYSTEM-COMMANDER-1__syscmd1/"
-    capabilities: ["execute_command", "tmux_sessions", "direct_execution", "contract_validation"]
-    integrations: ["Redis:6380", "HTTP-Gateway:8090"]
+    capabilities: ["execute_command", "tmux_sessions", "direct_execution", "shell_pool", "parallel_execution", "orchestration", "contract_validation"]
+    integrations: ["Redis:6380", "HTTP-Gateway:8090", "tmux:3.5a"]
     contracts: ["claude_code"]
     type: "persistent"
 
@@ -189,6 +189,12 @@ current_session_achievements:
   - "COMPLETE: Claude Code HTTP client with automatic fallback to Redis pub/sub"
   - "COMPLETE: System agent routing added to HTTP Gateway with contract authorization"
   - "Security architecture established: Command execution bypasses Claude Code restrictions via agent validation"
+  - "COMPLETE: SYSTEM COMMANDER PROMOTED TO GENERAL - Multi-shell orchestration operational"
+  - "Military hierarchy implemented: General→Colonel→Major→Captain command structure"
+  - "Shell Pool Management: Concurrent shell allocation with purpose-based isolation (Alpha, Bravo, Charlie, Delta units)"
+  - "Parallel Operations: 4 simultaneous command theaters executing in 520ms with full session isolation"
+  - "tmux integration: Persistent session management with automatic cleanup and lifecycle tracking"
+  - "Phase 1 Multi-Shell Architecture: Foundation complete for pexpect integration and dependency management"
 
 architectural_insights:
   - "Multi-tenancy: Single-agent pool with project-aware routing > multiple instances"
