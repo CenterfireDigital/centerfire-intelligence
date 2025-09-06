@@ -1,0 +1,66 @@
+# Personal AI Agent Configuration
+# CAP-PERSONAL-1__17571857 - Configurable Personal AI Orchestration Agent
+
+agent_info:
+  cid: "cid:centerfire:capability:17571857"
+  semantic_name: "CAP-PERSONAL-1"
+  display_name: "APOLLO"  # Configurable - user can change this
+  version: "1.0.0"
+
+# Core Configuration
+personality:
+  style: "technical_assistant"  # technical_assistant, casual_friend, professional
+  verbosity: "balanced"         # concise, balanced, detailed
+  use_emojis: true
+  response_format: "conversational"
+
+# Model Configuration  
+models:
+  conversation_model: "llama2:latest"    # Primary interface model
+  decision_model: "gemma:2b"             # Task routing decisions (fallback to rule-based)
+  
+  # Specialist models (inherited from AGT-LOCAL-LLM-1)
+  specialists:
+    file_analyst: "codellama:13b-instruct"
+    knowledge_curator: "mistral:7b-instruct"
+    workflow_manager: "llama3.1:8b"
+
+# Integration Endpoints
+integrations:
+  commander_endpoint: "http://localhost:8090/api/agents/system"
+  local_llm_endpoint: "http://localhost:8090/api/agents/localllm"
+  redis_endpoint: "localhost:6380"
+  weaviate_endpoint: "http://localhost:8080"
+
+# Orchestration Settings
+orchestration:
+  max_parallel_tasks: 3
+  task_timeout_seconds: 300
+  auto_delegate: true
+  conversation_memory: true
+  learning_enabled: true
+
+# Decision Rules (Fast Path)
+decision_rules:
+  system_commands:
+    patterns: ["check if", "is running", "status of", "restart", "stop", "start"]
+    handler: "commander"
+    
+  file_operations:
+    patterns: ["find files", "search for", "locate", "show me files"]
+    handler: "file_analyst"
+    
+  knowledge_queries:
+    patterns: ["remember when", "what did we discuss", "previous conversation"]
+    handler: "knowledge_curator"
+    
+  workflow_tasks:
+    patterns: ["todo", "task", "remind me", "organize", "plan"]
+    handler: "workflow_manager"
+
+# Conversation Flow
+conversation:
+  greeting_message: "Hello! I'm ${display_name}, your personal AI assistant. How can I help you today?"
+  context_window: 10  # Remember last 10 exchanges
+  auto_save_conversations: true
+  session_timeout_minutes: 60

@@ -5,6 +5,12 @@ clients:
     tty: true
     sessions: true
   
+  personal_agent:
+    commands:
+      - "*"  # Allow APOLLO to execute system commands
+    tty: false
+    sessions: false
+  
   # Future client contracts can be added here
   # web_ui:
   #   commands:
