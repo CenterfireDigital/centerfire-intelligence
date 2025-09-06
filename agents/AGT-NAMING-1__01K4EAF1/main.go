@@ -55,6 +55,12 @@ func (a *NamingAgent) Start() {
 	}
 	fmt.Printf("Connected to Redis successfully\n")
 	
+	// Check for collisions with AGT-MANAGER-1 before starting
+	if err := a.checkCollisionBeforeStart(); err != nil {
+		fmt.Printf("Collision detected: %v\n", err)
+		return
+	}
+	
 	// Subscribe to request channel
 	pubsub := a.RedisClient.Subscribe(a.ctx, a.RequestChannel)
 	defer pubsub.Close()
@@ -72,6 +78,7 @@ func (a *NamingAgent) Start() {
 		select {
 		case <-sigChan:
 			fmt.Printf("\n%s shutting down...\n", a.AgentID)
+			a.unregisterWithManager()
 			return
 		case msg := <-ch:
 			a.processMessage(msg.Payload)
@@ -476,6 +483,82 @@ func (a *NamingAgent) handleAllocateFunction(request map[string]interface{}) map
 
 func (a *NamingAgent) handleValidateName(request map[string]interface{}) map[string]interface{} {
 	return map[string]interface{}{"error": "Name validation not implemented yet"}
+}
+
+// checkCollisionBeforeStart - Check with AGT-MANAGER-1 for collision before starting
+func (a *NamingAgent) checkCollisionBeforeStart() error {
+	// Request collision check from AGT-MANAGER-1
+	request := map[string]interface{}{
+		"request_type": "check_agent_collision",
+		"agent_name":   a.AgentID,
+	}
+	
+	requestData, _ := json.Marshal(request)
+	
+	// Subscribe to response channel first
+	responseChannel := fmt.Sprintf("centerfire:agent:manager:response:%s", a.AgentID)
+	pubsub := a.RedisClient.Subscribe(a.ctx, responseChannel)
+	defer pubsub.Close()
+	
+	// Send request
+	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
+	if err != nil {
+		return fmt.Errorf("failed to request collision check: %v", err)
+	}
+	
+	// Wait for response with timeout
+	timeout := time.After(5 * time.Second)
+	ch := pubsub.Channel()
+	
+	for {
+		select {
+		case msg := <-ch:
+			var response map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Payload), &response); err != nil {
+				continue
+			}
+			
+			if collision, ok := response["collision"].(bool); ok && collision {
+				return fmt.Errorf("agent %s already running", a.AgentID)
+			}
+			// No collision - register ourselves as running
+			a.registerWithManager()
+			return nil
+			
+		case <-timeout:
+			// If AGT-MANAGER-1 is not responding, allow startup but log warning
+			fmt.Printf("Warning: AGT-MANAGER-1 not responding, allowing startup\n")
+			return nil
+		}
+	}
+}
+
+// registerWithManager - Register this agent as running
+func (a *NamingAgent) registerWithManager() {
+	request := map[string]interface{}{
+		"request_type": "register_running",
+		"agent_name":   a.AgentID,
+	}
+	
+	requestData, _ := json.Marshal(request)
+	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
+	if err == nil {
+		fmt.Printf("%s: Registered as running with AGT-MANAGER-1\n", a.AgentID)
+	}
+}
+
+// unregisterWithManager - Unregister this agent on shutdown
+func (a *NamingAgent) unregisterWithManager() {
+	request := map[string]interface{}{
+		"request_type": "unregister_running",
+		"agent_name":   a.AgentID,
+	}
+	
+	requestData, _ := json.Marshal(request)
+	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
+	if err == nil {
+		fmt.Printf("%s: Unregistered from AGT-MANAGER-1\n", a.AgentID)
+	}
 }
 
 func main() {

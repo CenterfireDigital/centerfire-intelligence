@@ -21,6 +21,7 @@ type AgentManager struct {
 	agents      map[string]*AgentProcess
 	managerID   string // Unique manager instance ID
 	agentRegistry map[string]*AgentDefinition // Agent registry for ephemeral lifecycle
+	runningAgents map[string]bool // Simple in-memory tracking of running agents
 }
 
 type AgentProcess struct {
@@ -78,6 +79,7 @@ func NewAgentManager() *AgentManager {
 		agents:      make(map[string]*AgentProcess),
 		managerID:   managerID,
 		agentRegistry: make(map[string]*AgentDefinition),
+		runningAgents: make(map[string]bool),
 	}
 	
 	// Initialize agent registry with known agents
@@ -152,6 +154,12 @@ func (am *AgentManager) processRequest(payload string) {
 		am.handleAgentStatus(request)
 	case "check_collisions":
 		am.handleCheckCollisions(request)
+	case "check_agent_collision":
+		am.handleCheckAgentCollision(request)
+	case "register_running":
+		am.handleRegisterRunning(request)
+	case "unregister_running":
+		am.handleUnregisterRunning(request)
 	case "session_restore":
 		am.handleSessionRestore(request)
 	case "register_agent":
@@ -301,6 +309,48 @@ func (am *AgentManager) handleCheckCollisions(request AgentRequest) {
 		"collisions": collisions,
 		"manager_id": am.managerID,
 	})
+}
+
+// handleCheckAgentCollision - Check if specific agent has collision and respond to agent
+func (am *AgentManager) handleCheckAgentCollision(request AgentRequest) {
+	agentName := request.AgentName
+	fmt.Printf("%s: Checking collision for agent %s\n", am.AgentID, agentName)
+	
+	singletonAgents := am.getSingletonAgents()
+	collision := false
+	
+	if singletonAgents[agentName] {
+		// Check in-memory tracking first
+		if am.runningAgents[agentName] {
+			collision = true
+			fmt.Printf("%s: Collision detected for %s (already registered as running)\n", am.AgentID, agentName)
+		}
+	}
+	
+	// Send response to specific agent's response channel
+	responseChannel := fmt.Sprintf("centerfire:agent:manager:response:%s", agentName)
+	response := map[string]interface{}{
+		"collision":  collision,
+		"agent":      agentName,
+		"manager_id": am.managerID,
+	}
+	
+	responseData, _ := json.Marshal(response)
+	am.RedisClient.Publish(am.ctx, responseChannel, string(responseData))
+}
+
+// handleRegisterRunning - Register agent as running in memory
+func (am *AgentManager) handleRegisterRunning(request AgentRequest) {
+	agentName := request.AgentName
+	fmt.Printf("%s: Registering %s as running\n", am.AgentID, agentName)
+	am.runningAgents[agentName] = true
+}
+
+// handleUnregisterRunning - Unregister agent from running state
+func (am *AgentManager) handleUnregisterRunning(request AgentRequest) {
+	agentName := request.AgentName
+	fmt.Printf("%s: Unregistering %s from running state\n", am.AgentID, agentName)
+	delete(am.runningAgents, agentName)
 }
 
 func (am *AgentManager) handleSessionRestore(request AgentRequest) {

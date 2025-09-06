@@ -75,6 +75,17 @@
     "deny": [],
     "ask": []
   },
-  "hooks": {},
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '⚡ CRITICAL: Read DIR-SYS-1__genesis/claude-agent-protocol.yaml for agent status and system context'"
+          }
+        ]
+      }
+    ]
+  },
   "disableAllHooks": false
 }
