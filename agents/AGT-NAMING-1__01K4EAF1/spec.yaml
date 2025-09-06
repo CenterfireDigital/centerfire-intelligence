@@ -1,0 +1,22 @@
+capabilities:
+    - allocate_capability
+    - allocate_module
+    - allocate_function
+    - validate_name
+    - manage_sequences
+cid: cid:centerfire:agent:01K4EAF14SC75RSJG1G9WV2APV
+created_at: "2025-09-06T01:32:44Z"
+created_by: AGT-BOOTSTRAP-1
+dependencies: []
+domain: NAMING
+id: AGT-NAMING-1
+name: NAMING Agent
+purpose: Exclusive authority over all naming decisions
+sequence: 1
+service:
+    channels:
+        request: agent.NAMING.request
+        response: agent.NAMING.response
+    type: redis_pubsub
+state: {}
+version: "1.0"

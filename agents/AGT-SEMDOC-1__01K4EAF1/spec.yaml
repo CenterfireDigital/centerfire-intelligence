@@ -1,0 +1,22 @@
+capabilities:
+    - create_semblock
+    - create_contract
+    - validate_documentation
+cid: cid:centerfire:agent:01K4EAF14T65H4PHVHGK9KK708
+created_at: "2025-09-06T01:32:44Z"
+created_by: AGT-BOOTSTRAP-1
+dependencies:
+    - AGT-NAMING-1
+    - AGT-STRUCT-1
+domain: SEMDOC
+id: AGT-SEMDOC-1
+name: SEMDOC Agent
+purpose: Creates and maintains semantic documentation
+sequence: 1
+service:
+    channels:
+        request: agent.SEMDOC.request
+        response: agent.SEMDOC.response
+    type: redis_pubsub
+state: {}
+version: "1.0"

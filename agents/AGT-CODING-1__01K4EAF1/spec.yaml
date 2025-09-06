@@ -1,0 +1,22 @@
+capabilities:
+    - generate_code
+    - refactor_code
+    - analyze_patterns
+cid: cid:centerfire:agent:01K4EAF14T65H4PHVHGP87EVAW
+created_at: "2025-09-06T01:32:44Z"
+created_by: AGT-BOOTSTRAP-1
+dependencies:
+    - AGT-NAMING-1
+    - AGT-SEMDOC-1
+domain: CODING
+id: AGT-CODING-1
+name: CODING Agent
+purpose: Generates code from specifications
+sequence: 1
+service:
+    channels:
+        request: agent.CODING.request
+        response: agent.CODING.response
+    type: redis_pubsub
+state: {}
+version: "1.0"

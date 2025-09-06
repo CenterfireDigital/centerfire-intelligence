@@ -1,0 +1,21 @@
+capabilities:
+    - create_directory
+    - create_structure
+    - validate_structure
+cid: cid:centerfire:agent:01K4EAF14T65H4PHVHGFMPR500
+created_at: "2025-09-06T01:32:44Z"
+created_by: AGT-BOOTSTRAP-1
+dependencies:
+    - AGT-NAMING-1
+domain: STRUCT
+id: AGT-STRUCT-1
+name: STRUCT Agent
+purpose: Creates and manages directory structures
+sequence: 1
+service:
+    channels:
+        request: agent.STRUCT.request
+        response: agent.STRUCT.response
+    type: redis_pubsub
+state: {}
+version: "1.0"

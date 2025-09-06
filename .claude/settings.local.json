@@ -53,7 +53,9 @@
       "Bash(redis-cli:*)",
       "Bash(pip3 list:*)",
       "Bash(git init:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(brew install:*)",
+      "Bash(go:*)"
     ],
     "deny": [],
     "ask": []
