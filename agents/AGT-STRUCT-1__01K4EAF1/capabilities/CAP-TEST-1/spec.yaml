@@ -1,8 +1,8 @@
-name: CAP-AUTH-1
-cid: cid:centerfire:capability:17571309
+name: CAP-TEST-1
+cid: cid:centerfire:capability:17571306
 type: capability
 template: default_capability
-created: 2025-09-05T22:55:08-05:00
+created: 2025-09-05T22:50:16-05:00
 description: "Auto-generated capability specification"
 
 # Capability specification

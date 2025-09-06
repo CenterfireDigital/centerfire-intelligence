@@ -438,25 +438,25 @@ func (a *SemanticAgent) handleStoreConcept(request map[string]interface{}) map[s
 	// Get namespaced class name
 	className := a.getClassName(project, environment, "concept")
 	
-	fmt.Printf("%s: Storing concept '%s' in class '%s'\n", a.AgentID, name, className)
+	fmt.Printf("%s: Storing concept '%s' via Redis stream (not direct Weaviate write)\n", a.AgentID, name)
 	
-	// Store concept in namespaced Weaviate class
-	_, err = a.WeaviateClient.Data().Creator().
-		WithClassName(className).
-		WithProperties(map[string]interface{}{
-			"name":        name,
-			"description": description,
-			"domain":      domain,
-			"cid":         cid,
-			"metadata":    metadata,
-			"project":     project,
-			"environment": environment,
-		}).
-		Do(a.ctx)
+	// CHANGED: Route through Redis streams instead of direct Weaviate write
+	err = a.publishSemanticEvent(map[string]interface{}{
+		"event_type":    "concept_stored",
+		"name":          name,
+		"description":   description,
+		"domain":        domain,
+		"cid":           cid,
+		"metadata":      metadata,
+		"project":       project,
+		"environment":   environment,
+		"className":     className,
+		"namespace":     a.getNamespace(project, environment),
+	})
 	
 	if err != nil {
 		return map[string]interface{}{
-			"error": fmt.Sprintf("Failed to store concept in %s: %v", className, err),
+			"error": fmt.Sprintf("Failed to publish semantic event: %v", err),
 		}
 	}
 	
@@ -547,6 +547,32 @@ func (a *SemanticAgent) handleQueryConcepts(request map[string]interface{}) map[
 		"namespace":   a.getNamespace(project, environment),
 		"class":       className,
 	}
+}
+
+// publishSemanticEvent - Publish semantic events to Redis streams for W/N consumers
+func (a *SemanticAgent) publishSemanticEvent(eventData map[string]interface{}) error {
+	streamName := "centerfire:semantic:concepts"
+	
+	eventJSON, err := json.Marshal(eventData)
+	if err != nil {
+		return fmt.Errorf("error marshaling event data: %v", err)
+	}
+	
+	_, err = a.RedisClient.XAdd(a.ctx, &redis.XAddArgs{
+		Stream: streamName,
+		Values: map[string]interface{}{
+			"data":      string(eventJSON),
+			"timestamp": time.Now().Unix(),
+			"source":    a.AgentID,
+		},
+	}).Result()
+	
+	if err != nil {
+		return fmt.Errorf("error publishing to stream: %v", err)
+	}
+	
+	fmt.Printf("%s: Published semantic event to stream: %s (type: %s)\n", a.AgentID, streamName, eventData["event_type"])
+	return nil
 }
 
 func main() {

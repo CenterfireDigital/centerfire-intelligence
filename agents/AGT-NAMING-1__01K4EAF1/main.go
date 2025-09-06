@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	
@@ -173,9 +174,13 @@ func (a *NamingAgent) handleAllocateCapability(request map[string]interface{}) m
 
 // generateCapabilityName - Generate new capability name with sequence
 func (a *NamingAgent) generateCapabilityName(domain, purpose string) map[string]interface{} {
-	// In real implementation, would check Redis for sequence
-	// For now, simulate sequence increment
-	sequence := 1 // TODO: Get from Redis
+	// Get sequence from Redis and increment atomically
+	sequenceKey := fmt.Sprintf("centerfire.dev.sequence:CAP-%s", domain)
+	sequence, err := a.RedisClient.Incr(a.ctx, sequenceKey).Result()
+	if err != nil {
+		fmt.Printf("Error getting sequence from Redis: %v, using fallback\n", err)
+		sequence = 1
+	}
 	
 	// Generate ULID for uniqueness
 	now := time.Now()
@@ -184,6 +189,24 @@ func (a *NamingAgent) generateCapabilityName(domain, purpose string) map[string]
 	slug := fmt.Sprintf("CAP-%s-%d", domain, sequence)
 	cid := fmt.Sprintf("cid:centerfire:capability:%s", ulid)
 	directory := fmt.Sprintf("%s__%s", slug, ulid)
+	
+	// Store the allocated name in Redis for tracking
+	nameKey := fmt.Sprintf("centerfire.dev.names:capability:%s", slug)
+	allocated := time.Now().Format(time.RFC3339)
+	nameData := map[string]interface{}{
+		"slug":      slug,
+		"cid":       cid,
+		"directory": directory,
+		"domain":    domain,
+		"purpose":   purpose,
+		"sequence":  sequence,
+		"allocated": allocated,
+	}
+	nameJSON, _ := json.Marshal(nameData)
+	a.RedisClient.Set(a.ctx, nameKey, nameJSON, 0) // No expiration
+	
+	// Publish semantic name event to stream for W/N consumers
+	a.publishSemanticNameEvent(slug, cid, directory, domain, purpose, sequence, allocated)
 	
 	return map[string]interface{}{
 		"slug":      slug,
@@ -236,9 +259,13 @@ func (a *NamingAgent) handleAllocateSession(request map[string]interface{}) map[
 
 // generateSessionID - Generate new session ID with sequence
 func (a *NamingAgent) generateSessionID(sessionType, context string) string {
-	// In real implementation, would check Redis for sequence
-	// For now, simulate sequence increment
-	sequence := 1 // TODO: Get from Redis
+	// Get sequence from Redis and increment atomically
+	sequenceKey := fmt.Sprintf("centerfire.dev.sequence:SES-%s", strings.ToUpper(sessionType))
+	sequence, err := a.RedisClient.Incr(a.ctx, sequenceKey).Result()
+	if err != nil {
+		fmt.Printf("Error getting session sequence from Redis: %v, using fallback\n", err)
+		sequence = 1
+	}
 
 	// Generate ULID for uniqueness
 	now := time.Now()
@@ -256,6 +283,43 @@ func (a *NamingAgent) generateSessionID(sessionType, context string) string {
 	}
 
 	return fmt.Sprintf("%s-%d-%s", prefix, sequence, ulid)
+}
+
+// publishSemanticNameEvent - Publish semantic name events to Redis streams for W/N consumers
+func (a *NamingAgent) publishSemanticNameEvent(slug, cid, directory, domain, purpose string, sequence int64, allocated string) {
+	streamName := "centerfire:semantic:names"
+	
+	eventData := map[string]interface{}{
+		"slug":       slug,
+		"cid":        cid,
+		"directory":  directory,
+		"domain":     domain,
+		"purpose":    purpose,
+		"sequence":   sequence,
+		"allocated":  allocated,
+		"event_type": "capability_allocated",
+	}
+	
+	eventJSON, err := json.Marshal(eventData)
+	if err != nil {
+		fmt.Printf("%s: Error marshaling event data: %v\n", a.AgentID, err)
+		return
+	}
+	
+	_, err = a.RedisClient.XAdd(a.ctx, &redis.XAddArgs{
+		Stream: streamName,
+		Values: map[string]interface{}{
+			"data":      string(eventJSON),
+			"timestamp": time.Now().Unix(),
+			"source":    a.AgentID,
+		},
+	}).Result()
+	
+	if err != nil {
+		fmt.Printf("%s: Error publishing to stream: %v\n", a.AgentID, err)
+	} else {
+		fmt.Printf("%s: Published semantic name event to stream: %s\n", a.AgentID, slug)
+	}
 }
 
 // Placeholder handlers
