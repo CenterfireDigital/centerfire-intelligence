@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,18 +14,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// NamingAgent - Generated agent for NAMING domain
+// NamingAgent - Enhanced dual-mode agent for NAMING domain with socket support
 type NamingAgent struct {
 	AgentID         string
 	CID            string
 	RequestChannel  string
 	ResponseChannel string
 	RedisClient    *redis.Client
+	SocketPath     string
 	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
-// NewAgent - Create new NAMING agent
+// NewAgent - Create new NAMING agent with dual-mode support
 func NewAgent() *NamingAgent {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	// Connect to Redis container on port 6380
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6380",
@@ -38,14 +43,17 @@ func NewAgent() *NamingAgent {
 		RequestChannel:  "agent.naming.request",
 		ResponseChannel: "agent.naming.response",
 		RedisClient:    rdb,
-		ctx:            context.Background(),
+		SocketPath:     "/tmp/orchestrator-naming.sock",
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
-// Start - Start listening for requests
+// Start - Start dual-mode listening (Redis + Socket)
 func (a *NamingAgent) Start() {
-	fmt.Printf("%s starting...\n", a.AgentID)
-	fmt.Printf("Listening on: %s\n", a.RequestChannel)
+	fmt.Printf("%s starting in DUAL-MODE (Redis + Socket)...\n", a.AgentID)
+	fmt.Printf("Redis channel: %s\n", a.RequestChannel)
+	fmt.Printf("Socket path: %s\n", a.SocketPath)
 	
 	// Test Redis connection
 	_, err := a.RedisClient.Ping(a.ctx).Result()
@@ -61,50 +69,150 @@ func (a *NamingAgent) Start() {
 		return
 	}
 	
-	// Subscribe to request channel
-	pubsub := a.RedisClient.Subscribe(a.ctx, a.RequestChannel)
-	defer pubsub.Close()
-	
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	
+	// Start Redis listener in goroutine
+	go a.startRedisListener()
+	
+	// Start Socket listener in goroutine  
+	go a.startSocketListener()
+	
+	fmt.Printf("%s ready - listening on BOTH Redis and Socket\n", a.AgentID)
+	
+	// Wait for shutdown signal
+	<-sigChan
+	fmt.Printf("\n%s shutting down...\n", a.AgentID)
+	a.unregisterWithManager()
+	a.cancel()
+}
+
+// startRedisListener - Handle Redis pub/sub requests (backward compatibility)
+func (a *NamingAgent) startRedisListener() {
+	// Subscribe to request channel
+	pubsub := a.RedisClient.Subscribe(a.ctx, a.RequestChannel)
+	defer pubsub.Close()
+	
 	// Listen for messages
 	ch := pubsub.Channel()
 	
-	fmt.Printf("%s ready - listening for requests\n", a.AgentID)
+	fmt.Printf("%s: Redis listener started\n", a.AgentID)
 	
 	for {
 		select {
-		case <-sigChan:
-			fmt.Printf("\n%s shutting down...\n", a.AgentID)
-			a.unregisterWithManager()
+		case <-a.ctx.Done():
+			fmt.Printf("%s: Redis listener stopping\n", a.AgentID)
 			return
 		case msg := <-ch:
-			a.processMessage(msg.Payload)
+			a.processRedisMessage(msg.Payload)
 		}
 	}
 }
 
-// processMessage - Process incoming Redis message
-func (a *NamingAgent) processMessage(payload string) {
+// startSocketListener - Handle orchestrator socket requests (new mode)
+func (a *NamingAgent) startSocketListener() {
+	for {
+		select {
+		case <-a.ctx.Done():
+			fmt.Printf("%s: Socket listener stopping\n", a.AgentID)
+			return
+		default:
+			// Try to connect to orchestrator socket
+			conn, err := net.Dial("unix", a.SocketPath)
+			if err != nil {
+				// Orchestrator not available, retry after delay
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			
+			fmt.Printf("%s: Connected to orchestrator via socket\n", a.AgentID)
+			a.handleSocketConnection(conn)
+			conn.Close()
+			
+			// If connection drops, retry after delay
+			time.Sleep(1 * time.Second)
+		}
+	}
+}
+
+// handleSocketConnection - Process socket communication with orchestrator
+func (a *NamingAgent) handleSocketConnection(conn net.Conn) {
+	buffer := make([]byte, 4096)
+	
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		default:
+			// Set read timeout
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			
+			n, err := conn.Read(buffer)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue // Timeout, keep trying
+				}
+				fmt.Printf("%s: Socket connection error: %v\n", a.AgentID, err)
+				return
+			}
+			
+			// Process socket request and send response
+			response := a.processSocketMessage(string(buffer[:n]))
+			if response != nil {
+				responseData, _ := json.Marshal(response)
+				conn.Write(responseData)
+			}
+		}
+	}
+}
+
+// processRedisMessage - Process incoming Redis message (existing logic)
+func (a *NamingAgent) processRedisMessage(payload string) {
 	var request map[string]interface{}
 	if err := json.Unmarshal([]byte(payload), &request); err != nil {
-		fmt.Printf("Error parsing request: %v\n", err)
+		fmt.Printf("%s: Error parsing Redis request: %v\n", a.AgentID, err)
 		return
 	}
 	
-	fmt.Printf("%s received request: %s\n", a.AgentID, request["action"])
+	fmt.Printf("%s received Redis request: %v\n", a.AgentID, request["action"])
 	
 	// Handle the request
 	response := a.HandleRequest(request)
 	
-	// Send response back
+	// Send response back via Redis
 	responseData, _ := json.Marshal(response)
 	a.RedisClient.Publish(a.ctx, a.ResponseChannel, responseData)
 }
 
-// HandleRequest - Handle incoming request
+// processSocketMessage - Process incoming socket message (new orchestrator format)
+func (a *NamingAgent) processSocketMessage(payload string) map[string]interface{} {
+	var request map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &request); err != nil {
+		fmt.Printf("%s: Error parsing socket request: %v\n", a.AgentID, err)
+		return map[string]interface{}{
+			"id":      "unknown",
+			"success": false,
+			"error":   "Invalid JSON",
+			"timestamp": time.Now(),
+		}
+	}
+	
+	fmt.Printf("%s received socket request: %v\n", a.AgentID, request["action"])
+	
+	// Handle the request using existing logic
+	response := a.HandleRequest(request)
+	
+	// Format response for orchestrator
+	return map[string]interface{}{
+		"id":      request["id"], // Echo back request ID
+		"success": true,
+		"data":    response,
+		"timestamp": time.Now(),
+	}
+}
+
+// HandleRequest - Handle incoming request (shared logic for both Redis and Socket)
 func (a *NamingAgent) HandleRequest(request map[string]interface{}) map[string]interface{} {
 	action, ok := request["action"].(string)
 	if !ok {
@@ -535,16 +643,25 @@ func (a *NamingAgent) checkCollisionBeforeStart() error {
 
 // registerWithManager - Register this agent as running
 func (a *NamingAgent) registerWithManager() {
+	// Get current process PID
+	pid := os.Getpid()
+	
 	request := map[string]interface{}{
 		"request_type": "register_running",
 		"agent_name":   a.AgentID,
+		"session_data": map[string]interface{}{
+			"pid": pid,
+		},
 	}
 	
 	requestData, _ := json.Marshal(request)
 	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
 	if err == nil {
-		fmt.Printf("%s: Registered as running with AGT-MANAGER-1\n", a.AgentID)
+		fmt.Printf("%s: Registered as running with AGT-MANAGER-1 (PID: %d)\n", a.AgentID, pid)
 	}
+	
+	// Start sending heartbeats
+	a.startHeartbeat()
 }
 
 // unregisterWithManager - Unregister this agent on shutdown
@@ -558,6 +675,36 @@ func (a *NamingAgent) unregisterWithManager() {
 	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
 	if err == nil {
 		fmt.Printf("%s: Unregistered from AGT-MANAGER-1\n", a.AgentID)
+	}
+}
+
+// startHeartbeat sends periodic heartbeat messages to AGT-MANAGER-1
+func (a *NamingAgent) startHeartbeat() {
+	ticker := time.NewTicker(25 * time.Second) // Send every 25 seconds (manager expects 30s)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				a.sendHeartbeat()
+			case <-a.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// sendHeartbeat sends a single heartbeat message
+func (a *NamingAgent) sendHeartbeat() {
+	request := map[string]interface{}{
+		"request_type": "heartbeat",
+		"agent_name":   a.AgentID,
+	}
+	
+	requestData, _ := json.Marshal(request)
+	err := a.RedisClient.Publish(a.ctx, "centerfire:agent:manager", string(requestData)).Err()
+	if err != nil {
+		fmt.Printf("%s: Failed to send heartbeat: %v\n", a.AgentID, err)
 	}
 }
 

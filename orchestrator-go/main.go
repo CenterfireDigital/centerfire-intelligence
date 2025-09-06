@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,11 +33,49 @@ type AgentConnection struct {
 	Active bool
 }
 
+// LLMProvider represents a language model provider
+type LLMProvider struct {
+	Name           string    `json:"name"`
+	CostPer1M      float64   `json:"cost_per_1m"`      // Cost per 1M tokens
+	MaxContext     int       `json:"max_context"`      // Maximum context window
+	LatencyMS      int       `json:"latency_ms"`       // Average response latency
+	Quality        float64   `json:"quality"`          // Quality score 0-1
+	Available      bool      `json:"available"`        // Provider availability
+	Capabilities   []string  `json:"capabilities"`     // ["coding", "reasoning", "creative", etc]
+	LastHealth     time.Time `json:"last_health"`      // Last health check
+}
+
+// LLMRouter handles intelligent routing to optimal LLM providers
+type LLMRouter struct {
+	providers    map[string]*LLMProvider
+	dailyBudget  float64
+	currentSpend float64
+	mu           sync.RWMutex
+}
+
+// RoutingRequest contains context for LLM routing decisions
+type RoutingRequest struct {
+	TokenCount   int      `json:"token_count"`
+	TaskType     string   `json:"task_type"`     // "coding", "reasoning", "creative", etc
+	Priority     string   `json:"priority"`      // "high", "medium", "low"
+	MaxLatency   int      `json:"max_latency"`   // Maximum acceptable latency (ms)
+	Interface    string   `json:"interface"`     // Request source context
+}
+
+// RoutingDecision contains the selected provider and reasoning
+type RoutingDecision struct {
+	Provider   string  `json:"provider"`
+	Reasoning  string  `json:"reasoning"`
+	Cost       float64 `json:"estimated_cost"`
+	Confidence float64 `json:"confidence"`
+}
+
 // Orchestrator coordinates between interfaces and agents
 type Orchestrator struct {
 	agentPool    *AgentPool
 	httpServer   *http.Server
 	wsUpgrader   websocket.Upgrader
+	llmRouter    *LLMRouter
 	ctx          context.Context
 	cancel       context.CancelFunc
 }
@@ -84,8 +123,9 @@ func NewOrchestrator() *Orchestrator {
 				return true // Allow all origins for now
 			},
 		},
-		ctx:    ctx,
-		cancel: cancel,
+		llmRouter: newLLMRouter(),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -99,7 +139,7 @@ func (o *Orchestrator) Start() error {
 	// Start HTTP/WebSocket server for interfaces
 	go o.startHTTPServer()
 	
-	// Start cost-aware LLM router
+	// Start intelligent LLM router
 	go o.startLLMRouter()
 	
 	log.Println("✅ Orchestrator started successfully")
@@ -170,6 +210,9 @@ func (o *Orchestrator) startHTTPServer() {
 	// Health check endpoint
 	mux.HandleFunc("/health", o.handleHealth)
 	
+	// LLM routing endpoint
+	mux.HandleFunc("/api/route-llm", o.handleLLMRoute)
+	
 	// Serve static web interface (future)
 	mux.Handle("/", http.FileServer(http.Dir("./web/")))
 	
@@ -184,17 +227,279 @@ func (o *Orchestrator) startHTTPServer() {
 	}
 }
 
-// startLLMRouter implements cost-aware LLM routing
+// startLLMRouter implements intelligent LLM routing
 func (o *Orchestrator) startLLMRouter() {
-	log.Println("🧠 Starting cost-aware LLM router")
+	log.Println("🧠 Starting intelligent LLM router")
 	
-	// TODO: Implement cost matrix and routing logic
-	// - Claude API: $15/1M tokens (high quality)
-	// - GPT-4: $10/1M tokens (balanced)
-	// - Gemini: $7/1M tokens (cost-effective)
-	// - Local LLM: $0/1M tokens (free, lower quality)
+	// Initialize provider health checking
+	go o.llmRouter.startHealthMonitoring()
 	
-	// This will be expanded with actual routing logic
+	log.Printf("📊 LLM Router initialized with %d providers", len(o.llmRouter.providers))
+	log.Printf("💰 Daily budget: $%.2f", o.llmRouter.dailyBudget)
+}
+
+// newLLMRouter creates a new LLM router with default providers
+func newLLMRouter() *LLMRouter {
+	return &LLMRouter{
+		providers: map[string]*LLMProvider{
+			"claude-sonnet-4": {
+				Name:         "Claude Sonnet 4",
+				CostPer1M:    15.0,
+				MaxContext:   200000,
+				LatencyMS:    2000,
+				Quality:      0.95,
+				Available:    true,
+				Capabilities: []string{"coding", "reasoning", "creative", "analysis"},
+				LastHealth:   time.Now(),
+			},
+			"gpt-4-turbo": {
+				Name:         "GPT-4 Turbo",
+				CostPer1M:    10.0,
+				MaxContext:   128000,
+				LatencyMS:    1500,
+				Quality:      0.90,
+				Available:    true,
+				Capabilities: []string{"coding", "reasoning", "creative"},
+				LastHealth:   time.Now(),
+			},
+			"gemini-pro": {
+				Name:         "Gemini Pro",
+				CostPer1M:    7.0,
+				MaxContext:   32000,
+				LatencyMS:    1200,
+				Quality:      0.85,
+				Available:    true,
+				Capabilities: []string{"reasoning", "creative", "analysis"},
+				LastHealth:   time.Now(),
+			},
+			"local-llm": {
+				Name:         "Local Llama",
+				CostPer1M:    0.0,
+				MaxContext:   8000,
+				LatencyMS:    800,
+				Quality:      0.75,
+				Available:    true,
+				Capabilities: []string{"coding", "reasoning"},
+				LastHealth:   time.Now(),
+			},
+		},
+		dailyBudget:  100.0, // $100/day budget
+		currentSpend: 0.0,
+	}
+}
+
+// RouteRequest intelligently selects the best LLM provider for a request
+func (r *LLMRouter) RouteRequest(req RoutingRequest) RoutingDecision {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var candidates []*LLMProvider
+	var scores []float64
+
+	// Filter available providers that can handle the request
+	for _, provider := range r.providers {
+		if !provider.Available {
+			continue
+		}
+		if req.TokenCount > provider.MaxContext {
+			continue
+		}
+		
+		// Check capability match
+		if !r.hasCapability(provider, req.TaskType) {
+			continue
+		}
+
+		score := r.calculateScore(provider, req)
+		candidates = append(candidates, provider)
+		scores = append(scores, score)
+	}
+
+	if len(candidates) == 0 {
+		return RoutingDecision{
+			Provider:   "claude-sonnet-4", // Fallback to most capable
+			Reasoning:  "No suitable providers found, using fallback",
+			Cost:       float64(req.TokenCount) * 15.0 / 1000000,
+			Confidence: 0.5,
+		}
+	}
+
+	// Find best candidate
+	bestIdx := 0
+	bestScore := scores[0]
+	for i, score := range scores {
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+
+	selectedProvider := candidates[bestIdx]
+	estimatedCost := float64(req.TokenCount) * selectedProvider.CostPer1M / 1000000
+
+	return RoutingDecision{
+		Provider:   selectedProvider.Name,
+		Reasoning:  r.generateReasoning(selectedProvider, req, bestScore),
+		Cost:       estimatedCost,
+		Confidence: bestScore,
+	}
+}
+
+// calculateScore computes a multi-factor score for provider selection
+func (r *LLMRouter) calculateScore(provider *LLMProvider, req RoutingRequest) float64 {
+	// Base quality score (0-1)
+	score := provider.Quality
+
+	// Cost factor - prefer cheaper options but with diminishing returns
+	costFactor := 1.0
+	if provider.CostPer1M > 0 {
+		remainingBudget := r.dailyBudget - r.currentSpend
+		requestCost := float64(req.TokenCount) * provider.CostPer1M / 1000000
+		
+		if requestCost > remainingBudget {
+			costFactor = 0.1 // Heavily penalize budget-exceeding options
+		} else {
+			// Prefer cost-effective options: higher cost = lower factor
+			costFactor = 1.0 - (provider.CostPer1M / 20.0) // Normalize against $20/1M max
+		}
+	} else {
+		costFactor = 1.2 // Bonus for free providers
+	}
+
+	// Latency factor - prefer faster responses
+	latencyFactor := 1.0
+	if req.MaxLatency > 0 && provider.LatencyMS > req.MaxLatency {
+		latencyFactor = 0.3 // Heavy penalty for exceeding latency requirements
+	} else {
+		latencyFactor = 1.0 - (float64(provider.LatencyMS) / 5000.0) // Normalize against 5s max
+	}
+
+	// Priority factor - adjust based on request priority
+	priorityFactor := 1.0
+	switch req.Priority {
+	case "high":
+		// High priority: prefer quality over cost
+		score *= 1.2
+		costFactor *= 0.8
+	case "low":
+		// Low priority: prefer cost over quality
+		score *= 0.9
+		costFactor *= 1.3
+	}
+
+	// Context efficiency - bonus for providers that can handle large contexts
+	contextFactor := 1.0
+	if req.TokenCount > provider.MaxContext/2 {
+		contextFactor = 0.8 // Slight penalty for near-capacity usage
+	}
+
+	// Combine all factors
+	finalScore := score * costFactor * latencyFactor * priorityFactor * contextFactor
+
+	// Ensure score is between 0 and 1
+	if finalScore > 1.0 {
+		finalScore = 1.0
+	}
+	if finalScore < 0 {
+		finalScore = 0
+	}
+
+	return finalScore
+}
+
+// hasCapability checks if provider supports the required task type
+func (r *LLMRouter) hasCapability(provider *LLMProvider, taskType string) bool {
+	if taskType == "" {
+		return true // No specific requirement
+	}
+	
+	for _, capability := range provider.Capabilities {
+		if capability == taskType {
+			return true
+		}
+	}
+	return false
+}
+
+// generateReasoning creates human-readable explanation for routing decision
+func (r *LLMRouter) generateReasoning(provider *LLMProvider, req RoutingRequest, score float64) string {
+	factors := []string{}
+	
+	if score > 0.8 {
+		factors = append(factors, "high quality match")
+	}
+	
+	remainingBudget := r.dailyBudget - r.currentSpend
+	requestCost := float64(req.TokenCount) * provider.CostPer1M / 1000000
+	if requestCost < remainingBudget*0.1 {
+		factors = append(factors, "cost-effective")
+	}
+	
+	if req.MaxLatency > 0 && provider.LatencyMS < req.MaxLatency {
+		factors = append(factors, "meets latency requirements")
+	}
+	
+	if r.hasCapability(provider, req.TaskType) {
+		factors = append(factors, fmt.Sprintf("supports %s tasks", req.TaskType))
+	}
+	
+	if len(factors) == 0 {
+		return "best available option"
+	}
+	
+	return fmt.Sprintf("Selected for: %s", strings.Join(factors, ", "))
+}
+
+// startHealthMonitoring periodically checks provider health
+func (r *LLMRouter) startHealthMonitoring() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		r.checkProviderHealth()
+	}
+}
+
+// checkProviderHealth updates provider availability status
+func (r *LLMRouter) checkProviderHealth() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	for name, provider := range r.providers {
+		// Simple health check - in production, this would make actual API calls
+		provider.Available = time.Since(provider.LastHealth) < 10*time.Minute
+		provider.LastHealth = time.Now()
+		
+		if !provider.Available {
+			log.Printf("⚠️ Provider %s marked as unavailable", name)
+		}
+	}
+}
+
+// TrackSpending updates current daily spending
+func (r *LLMRouter) TrackSpending(cost float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	r.currentSpend += cost
+	
+	if r.currentSpend > r.dailyBudget*0.8 {
+		log.Printf("⚠️ LLM spending at %.1f%% of daily budget ($%.2f/$%.2f)", 
+			(r.currentSpend/r.dailyBudget)*100, r.currentSpend, r.dailyBudget)
+	}
+}
+
+// GetSpendingStatus returns current spending information
+func (r *LLMRouter) GetSpendingStatus() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	return map[string]interface{}{
+		"daily_budget":    r.dailyBudget,
+		"current_spend":   r.currentSpend,
+		"remaining":       r.dailyBudget - r.currentSpend,
+		"utilization_pct": (r.currentSpend / r.dailyBudget) * 100,
+	}
 }
 
 // handleWebSocket manages WebSocket connections for web interface
@@ -260,10 +565,48 @@ func (o *Orchestrator) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"agents":       activeAgents,
 		"timestamp":    time.Now(),
 		"interfaces":   []string{"websocket", "http", "unix-sockets"},
+		"llm_router":   o.llmRouter.GetSpendingStatus(),
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+// handleLLMRoute processes LLM routing requests
+func (o *Orchestrator) handleLLMRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req RoutingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	
+	// Apply defaults if not specified
+	if req.Priority == "" {
+		req.Priority = "medium"
+	}
+	if req.TaskType == "" {
+		req.TaskType = "reasoning"
+	}
+	if req.Interface == "" {
+		req.Interface = "api"
+	}
+	
+	// Get routing decision
+	decision := o.llmRouter.RouteRequest(req)
+	
+	// Track spending
+	o.llmRouter.TrackSpending(decision.Cost)
+	
+	log.Printf("🎯 LLM Route: %s -> %s (cost: $%.4f, confidence: %.2f)", 
+		req.TaskType, decision.Provider, decision.Cost, decision.Confidence)
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(decision)
 }
 
 // processRequest routes requests to appropriate agents

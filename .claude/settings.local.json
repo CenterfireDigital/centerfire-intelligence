@@ -71,7 +71,9 @@
       "Bash(echo:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
-      "Bash(cargo --version)"
+      "Bash(cargo --version)",
+      "Bash(./start-agents.sh:*)",
+      "Bash(pwdx:*)"
     ],
     "deny": [],
     "ask": []

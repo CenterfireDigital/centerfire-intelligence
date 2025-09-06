@@ -21,18 +21,22 @@ type AgentManager struct {
 	agents      map[string]*AgentProcess
 	managerID   string // Unique manager instance ID
 	agentRegistry map[string]*AgentDefinition // Agent registry for ephemeral lifecycle
-	runningAgents map[string]bool // Simple in-memory tracking of running agents
+	runningAgents map[string]*AgentProcess // PID-based tracking of running agents
+	heartbeatInterval time.Duration // How often to expect heartbeats
+	heartbeatTimeout  time.Duration // When to consider an agent dead
 }
 
 type AgentProcess struct {
-	Name      string
-	Directory string
-	Process   *exec.Cmd
-	Running   bool
-	StartTime time.Time
-	SessionID string
-	AgentType AgentType // persistent or ephemeral
-	TaskID    string    // for ephemeral agents
+	Name         string
+	Directory    string
+	Process      *exec.Cmd
+	PID          int       // Process ID for monitoring
+	Running      bool
+	StartTime    time.Time
+	LastHeartbeat time.Time // Last heartbeat received
+	SessionID    string
+	AgentType    AgentType // persistent or ephemeral
+	TaskID       string    // for ephemeral agents
 }
 
 type AgentType string
@@ -79,7 +83,9 @@ func NewAgentManager() *AgentManager {
 		agents:      make(map[string]*AgentProcess),
 		managerID:   managerID,
 		agentRegistry: make(map[string]*AgentDefinition),
-		runningAgents: make(map[string]bool),
+		runningAgents: make(map[string]*AgentProcess),
+		heartbeatInterval: 30 * time.Second, // Expect heartbeat every 30 seconds
+		heartbeatTimeout:  90 * time.Second, // Consider dead after 90 seconds
 	}
 	
 	// Initialize agent registry with known agents
@@ -103,6 +109,9 @@ func (am *AgentManager) Start() {
 	// Subscribe to agent management requests
 	pubsub := am.RedisClient.Subscribe(am.ctx, "centerfire:agent:manager")
 	defer pubsub.Close()
+
+	// Start heartbeat monitoring
+	am.startHeartbeatMonitor()
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -160,6 +169,8 @@ func (am *AgentManager) processRequest(payload string) {
 		am.handleRegisterRunning(request)
 	case "unregister_running":
 		am.handleUnregisterRunning(request)
+	case "heartbeat":
+		am.handleHeartbeat(request)
 	case "session_restore":
 		am.handleSessionRestore(request)
 	case "register_agent":
@@ -320,10 +331,17 @@ func (am *AgentManager) handleCheckAgentCollision(request AgentRequest) {
 	collision := false
 	
 	if singletonAgents[agentName] {
-		// Check in-memory tracking first
-		if am.runningAgents[agentName] {
-			collision = true
-			fmt.Printf("%s: Collision detected for %s (already registered as running)\n", am.AgentID, agentName)
+		// Check if agent is registered and validate PID
+		if agentProcess, exists := am.runningAgents[agentName]; exists {
+			// Validate that the PID is still running
+			if am.isProcessRunning(agentProcess.PID) {
+				collision = true
+				fmt.Printf("%s: Collision detected for %s (PID %d still running)\n", am.AgentID, agentName, agentProcess.PID)
+			} else {
+				// Process is dead, clean up stale registration
+				fmt.Printf("%s: Cleaning up stale registration for %s (PID %d not running)\n", am.AgentID, agentName, agentProcess.PID)
+				delete(am.runningAgents, agentName)
+			}
 		}
 	}
 	
@@ -339,11 +357,34 @@ func (am *AgentManager) handleCheckAgentCollision(request AgentRequest) {
 	am.RedisClient.Publish(am.ctx, responseChannel, string(responseData))
 }
 
-// handleRegisterRunning - Register agent as running in memory
+// handleRegisterRunning - Register agent as running with PID tracking
 func (am *AgentManager) handleRegisterRunning(request AgentRequest) {
 	agentName := request.AgentName
-	fmt.Printf("%s: Registering %s as running\n", am.AgentID, agentName)
-	am.runningAgents[agentName] = true
+	
+	// Extract PID from request data
+	pid := 0
+	if request.SessionData != nil {
+		if p, ok := request.SessionData["pid"].(float64); ok {
+			pid = int(p)
+		} else if p, ok := request.SessionData["pid"].(int); ok {
+			pid = p
+		}
+	}
+	
+	fmt.Printf("%s: Registering %s as running (PID: %d)\n", am.AgentID, agentName, pid)
+	
+	// Create agent process record
+	am.runningAgents[agentName] = &AgentProcess{
+		Name:          agentName,
+		PID:           pid,
+		Running:       true,
+		StartTime:     time.Now(),
+		LastHeartbeat: time.Now(),
+		AgentType:     PersistentAgent, // Assume persistent for externally started agents
+	}
+	
+	// Store in Redis for persistence across manager restarts
+	am.storeAgentInRedis(agentName, pid)
 }
 
 // handleUnregisterRunning - Unregister agent from running state
@@ -935,4 +976,96 @@ func main() {
 
 	manager := NewAgentManager()
 	manager.Start()
+}
+
+// PID validation and monitoring functions
+
+// isProcessRunning checks if a process with given PID is still running
+func (am *AgentManager) isProcessRunning(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	
+	// On Unix systems, kill -0 checks if process exists without sending signal
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	
+	// Send signal 0 to check if process exists
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+// storeAgentInRedis persists agent information to Redis for crash recovery
+func (am *AgentManager) storeAgentInRedis(agentName string, pid int) {
+	key := fmt.Sprintf("centerfire:agents:running:%s", agentName)
+	data := map[string]interface{}{
+		"name":       agentName,
+		"pid":        pid,
+		"start_time": time.Now().Unix(),
+		"manager_id": am.managerID,
+	}
+	
+	dataJson, _ := json.Marshal(data)
+	am.RedisClient.Set(am.ctx, key, string(dataJson), time.Hour*24) // 24 hour TTL
+}
+
+// handleHeartbeat processes heartbeat messages from agents
+func (am *AgentManager) handleHeartbeat(request AgentRequest) {
+	agentName := request.AgentName
+	
+	if agentProcess, exists := am.runningAgents[agentName]; exists {
+		agentProcess.LastHeartbeat = time.Now()
+		fmt.Printf("%s: Heartbeat received from %s (PID: %d)\n", am.AgentID, agentName, agentProcess.PID)
+	} else {
+		fmt.Printf("%s: Heartbeat from unregistered agent %s\n", am.AgentID, agentName)
+	}
+}
+
+// startHeartbeatMonitor runs background monitoring of agent health
+func (am *AgentManager) startHeartbeatMonitor() {
+	ticker := time.NewTicker(am.heartbeatInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				am.checkAgentHealth()
+			case <-am.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// checkAgentHealth validates all registered agents are still alive
+func (am *AgentManager) checkAgentHealth() {
+	now := time.Now()
+	
+	for agentName, agentProcess := range am.runningAgents {
+		// Check heartbeat timeout
+		if now.Sub(agentProcess.LastHeartbeat) > am.heartbeatTimeout {
+			fmt.Printf("%s: Agent %s heartbeat timeout (last: %v)\n", 
+				am.AgentID, agentName, agentProcess.LastHeartbeat)
+			
+			// Double-check with PID validation
+			if !am.isProcessRunning(agentProcess.PID) {
+				fmt.Printf("%s: Confirming %s is dead (PID %d), removing registration\n",
+					am.AgentID, agentName, agentProcess.PID)
+				delete(am.runningAgents, agentName)
+				
+				// Clean up Redis
+				am.RedisClient.Del(am.ctx, fmt.Sprintf("centerfire:agents:running:%s", agentName))
+				
+				// TODO: For persistent agents, trigger diagnostic agent to investigate
+				if agentProcess.AgentType == PersistentAgent {
+					fmt.Printf("%s: ALERT - Persistent agent %s died, diagnostic needed\n", am.AgentID, agentName)
+				}
+			} else {
+				fmt.Printf("%s: Agent %s missed heartbeat but PID %d still running\n",
+					am.AgentID, agentName, agentProcess.PID)
+			}
+		}
+	}
 }
