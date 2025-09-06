@@ -89,6 +89,9 @@ func (ap *AgentProxy) ForwardToAgent(agent, action string, data map[string]inter
 	case "manager":
 		requestChannel = "agent.manager.request"
 		responseChannel = "agent.manager.response"
+	case "system":
+		requestChannel = "agent.system.request"
+		responseChannel = "agent.system.response"
 	default:
 		return nil, fmt.Errorf("unknown agent: %s", agent)
 	}

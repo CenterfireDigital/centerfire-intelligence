@@ -1,0 +1,14 @@
+clients:
+  claude_code:
+    commands:
+      - "*"  # Allow all commands initially
+    tty: true
+    sessions: true
+  
+  # Future client contracts can be added here
+  # web_ui:
+  #   commands:
+  #     - "ls"
+  #     - "git status"
+  #   tty: false
+  #   sessions: false

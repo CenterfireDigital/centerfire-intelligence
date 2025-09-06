@@ -20,6 +20,10 @@ access_permissions:
     semantic:
       actions: ["store_concept", "query_concepts", "semantic_similarity", "get_namespaces"]
       description: "Semantic analysis and concept storage"
+      
+    system:
+      actions: ["execute_command"]
+      description: "Secure system command execution with contract validation"
 
   # Agents Claude Code cannot access
   forbidden_agents: 
