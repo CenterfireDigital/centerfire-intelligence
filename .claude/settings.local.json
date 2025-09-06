@@ -56,7 +56,11 @@
       "Bash(git config:*)",
       "Bash(brew install:*)",
       "Bash(go:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(brew uninstall:*)",
+      "Bash(./test_namespace.sh:*)",
+      "Bash(docker stop:*)",
+      "Bash(./session-manager create --type=claude_coding --context=\"Testing session management system\")"
     ],
     "deny": [],
     "ask": []

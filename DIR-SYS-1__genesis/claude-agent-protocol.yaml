@@ -1,9 +1,9 @@
 # Claude Agent Protocol Directives
 # CRITICAL: Read this file in every new session to understand agent architecture
 
-version: "1.0"
-directive_type: "agent_protocol"
-last_updated: "2025-09-06T01:40:00Z"
+version: "1.4"
+directive_type: "agent_protocol" 
+last_updated: "2025-09-06T03:05:00Z"
 
 # CORE PRINCIPLE: Everything goes through agents
 never_create_directly:
@@ -11,17 +11,35 @@ never_create_directly:
   - names (ask AGT-NAMING-1) 
   - documentation (ask AGT-SEMDOC-1)
   - code (ask AGT-CODING-1)
+  - semantic analysis (ask AGT-SEMANTIC-1)
+  - graph relationships (ask AGT-GRAPH-1 - when created)
 
-# NAMING PROTOCOL
+# SEMANTIC NAMING PROTOCOL - UPDATED v1.2
 naming_rules:
-  pattern: "TYPE-DOMAIN-N__ULID8"
+  pattern: "PROJECT.ENV.TYPE-DOMAIN-N__ULID8"
+  legacy_pattern: "TYPE-DOMAIN-N__ULID8"  # for backward compatibility
   no_zero_padding: true  # CAP-AUTH-1 not CAP-AUTH-001
+  
+  projects:
+    current: "centerfire"
+    future: ["myproject", "clientname", etc.]
+    
+  environments:
+    dev: "development/testing environment"
+    test: "isolated testing with cleanup"
+    prod: "production autonomous system"
+    
   examples:
-    agents: "AGT-NAMING-1__01K4EAF1"
-    capabilities: "CAP-AUTH-2__01K4EAF3" 
-    documentation: "DOC-ARCH-1__genesis"
-    directives: "DIR-SYS-1__genesis"
-    files: "FIL-SPEC-1__agent.yaml"
+    agents: "centerfire.dev.AGT-NAMING-1__01K4EAF1"
+    capabilities: "centerfire.prod.CAP-AUTH-2__01K4EAF3"
+    documentation: "centerfire.dev.DOC-ARCH-1__genesis"
+    test_concepts: "centerfire.test.CON-LOGIN-1__01K4EAF5"
+    
+# SEMANTIC NAMESPACE SEPARATION
+namespace_implementation:
+  weaviate_classes: "Project_Env_Type" # Centerfire_Dev_Concept
+  neo4j_labels: "(:Project_Env_Type)" # (:Centerfire_Dev_Agent)
+  redis_channels: "project.env.agent.type.request" # centerfire.dev.agent.semantic.request
 
 # AGENT DELEGATION CHAIN
 workflow:
@@ -56,6 +74,8 @@ redis_channels:
   structure: "agent.struct.request" 
   coding: "agent.coding.request"
   documentation: "agent.semdoc.request"
+  semantic: "agent.semantic.request"
+  graph: "agent.graph.request"  # when AGT-GRAPH-1 created
 
 # CURRENT AGENT STATUS
 active_agents:
@@ -64,13 +84,23 @@ active_agents:
     location: "agents/AGT-BOOTSTRAP-1__genesis/"
     
   - id: "AGT-NAMING-1" 
-    status: "tested_working"
+    status: "tested_working_with_redis"
     location: "agents/AGT-NAMING-1__01K4EAF1/"
     capabilities: ["allocate_capability", "allocate_module", "manage_sequences"]
+    integrations: ["Redis:6380"]
     
   - id: "AGT-STRUCT-1"
-    status: "created_not_tested"
+    status: "tested_working_with_redis"
     location: "agents/AGT-STRUCT-1__01K4EAF1/"
+    capabilities: ["create_structure", "delegate_documentation"]
+    integrations: ["Redis:6380"]
+    
+  - id: "AGT-SEMANTIC-1"
+    status: "tested_working_with_namespaces"
+    location: "agents/AGT-SEMANTIC-1__01K4EAF1/"
+    capabilities: ["semantic_similarity", "store_concept", "query_concepts"]
+    integrations: ["Redis:6380", "Weaviate:8080"]
+    namespaces: ["centerfire.dev", "centerfire.test", "centerfire.prod"]
     
   - id: "AGT-SEMDOC-1"
     status: "created_not_tested"
@@ -80,30 +110,69 @@ active_agents:
     status: "created_not_tested"  
     location: "agents/AGT-CODING-1__01K4EAF1/"
 
-# NEXT DEVELOPMENT STEPS
-todo:
-  - implement_agent_delegation_in_AGT-NAMING-1
-  - connect_agents_to_redis_pubsub
-  - test_full_delegation_chain
-  - build_first_capability_using_agents
+# DEVELOPMENT STATUS - UPDATED SESSION END
+foundation_complete:
+  - "Agent ecosystem operational: AGT-NAMING-1, AGT-STRUCT-1, AGT-SEMANTIC-1"
+  - "Redis pub/sub delegation chain working end-to-end" 
+  - "Semantic namespacing: centerfire.dev/test/prod isolation working"
+  - "Auto-read hook installed for session continuity"
+  - "Stream pipeline created: Redis Streams → W/N consumers"
+  - "Infrastructure cleaned: stopped unused mem0-postgres, mem0-qdrant"
+  - "mem0 library analysis: NOT used, only container names"
+
+current_session_achievements:
+  - "Implemented semantic namespacing in AGT-SEMANTIC-1 with Weaviate"
+  - "Created complete Redis Streams pipeline for learning/conversation capture"
+  - "Designed Redis-based session management architecture"
+  - "Identified mem0 containers as legacy dead weight (stopped but not removed)"
+  - "Reduced active databases from 5 to 3: Redis + Weaviate + Neo4j"
+
+next_priorities:
+  - implement_redis_based_session_management_for_claude_sessions
+  - create_AGT-SESSION-1_for_session_state_management
+  - update_AGT-NAMING-1_with_PROJECT.ENV.TYPE_pattern
+  - test_complete_stream_pipeline_end_to_end
+  - create_AGT-GRAPH-1_for_neo4j_relationships
+
+# INFRASTRUCTURE STATUS  
+active_databases:
+  redis: "mem0-redis:6380 - agent pub/sub + streams + future session management"
+  weaviate: "centerfire-weaviate:8080 - semantic storage with namespaces (AGT-SEMANTIC-1 active)"
+  neo4j: "centerfire-neo4j:7474/7687 - graph relationships (awaiting AGT-GRAPH-1)"
+  
+stopped_containers: "mem0-postgres:5433, mem0-qdrant:6333 - legacy dead weight (stopped, not removed)"
+
+# LEARNING PIPELINE ARCHITECTURE  
+stream_flow: "Redis Streams → W/N Consumers → Weaviate/Neo4j (conversation capture)"
+files_created: "/streams/producer/, /streams/weaviate-consumer/, /streams/neo4j-consumer/"
+governance: "AGT-STREAM-MANAGER-1 monitors dedicated consumers (not agents)"
+philosophy: "Agents MONITOR infrastructure, don't BECOME infrastructure"
+
+# SESSION MANAGEMENT ARCHITECTURE
+session_strategy: "Redis-based session management for Claude coding continuity"
+namespaced_keys: "centerfire.dev.session:claude:TIMESTAMP, centerfire.dev.session:agent:ID:task"
+use_cases: "post-compact recovery, multi-step task tracking, agent collaboration state"
+future_agent: "AGT-SESSION-1 for session lifecycle management"
 
 # CRITICAL REMINDERS FOR CLAUDE
 claude_instructions: |
   ALWAYS read this file first in new sessions.
-  NEVER create directories directly - ask AGT-STRUCT-1
-  NEVER generate names directly - ask AGT-NAMING-1  
-  NEVER write code directly - ask AGT-CODING-1
   
-  The system is AGENT-ORIENTED, not service-oriented.
-  Every operation flows through specialized agents.
+  AGENT DELEGATION (NEVER create directly):
+  - Directories → AGT-STRUCT-1 (working)
+  - Names → AGT-NAMING-1 (working, needs PROJECT.ENV.TYPE update)
+  - Semantic analysis → AGT-SEMANTIC-1 (working with namespaces)
+  - Code → AGT-CODING-1 (created)
+  - Documentation → AGT-SEMDOC-1 (created) 
+  - Graph relationships → AGT-GRAPH-1 (not created)
   
-  If agents aren't responding, check if they're running:
-  cd agents/AGT-NAMING-1__01K4EAF1 && go run main.go
+  SYSTEM ARCHITECTURE:
+  - Agent-oriented (not service-oriented) - everything flows through agents
+  - Semantic namespacing: PROJECT.ENV.TYPE (centerfire.dev/test/prod)
+  - Stream philosophy: agents MONITOR infrastructure, don't BECOME it
+  - Working channels: agent.naming.request, agent.struct.request, agent.semantic.request
+  
+  AUTO-READ HOOK INSTALLED: Future sessions will see reminder to read this file
 
-# SESSION RECOVERY PROTOCOL
-recovery_steps:
-  - read_this_directives_file
-  - check_agent_status_in_agents_directory  
-  - start_required_agents
-  - test_agent_communication
-  - proceed_with_development
+# SESSION RECOVERY  
+steps: "Read directives → Check agent status → Start agents → Test communication"

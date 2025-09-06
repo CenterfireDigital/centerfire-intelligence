@@ -1,0 +1,33 @@
+capabilities:
+    - semantic_similarity
+    - store_concept
+    - query_concepts
+    - vector_operations
+    - concept_management
+cid: cid:centerfire:agent:01K4EAF14T65H4PHVHGFMPR501
+created_at: "2025-09-06T01:32:44Z"
+created_by: AGT-BOOTSTRAP-1
+dependencies: 
+    - weaviate
+    - redis
+domain: SEMANTIC
+id: AGT-SEMANTIC-1
+name: SEMANTIC Agent
+purpose: Manage semantic concepts and vector operations via Weaviate
+sequence: 1
+service:
+    channels:
+        request: agent.semantic.request
+        response: agent.semantic.response
+    type: redis_pubsub
+    external_services:
+        - name: weaviate
+          host: localhost
+          port: 8080
+          protocol: http
+        - name: redis
+          host: localhost
+          port: 6380
+          protocol: redis
+state: {}
+version: "1.0"
