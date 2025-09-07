@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	
 	"github.com/go-redis/redis/v8"
@@ -108,8 +109,18 @@ func (cc *ConversationConsumer) processConversationMessage(message redis.XMessag
 	
 	var convData ConversationData
 	if err := json.Unmarshal([]byte(dataStr), &convData); err != nil {
-		log.Printf("Error unmarshaling conversation data: %v", err)
-		return
+		log.Printf("❌ Error unmarshaling conversation data: %v", err)
+		log.Printf("📄 Malformed data: %s", dataStr)
+		
+		// Try to recover by cleaning the JSON
+		cleanedData := strings.ReplaceAll(dataStr, `\!`, `!`)
+		cleanedData = strings.ReplaceAll(cleanedData, `\"`, `"`)
+		
+		if err := json.Unmarshal([]byte(cleanedData), &convData); err != nil {
+			log.Printf("❌ Recovery failed, skipping message: %v", err)
+			return
+		}
+		log.Printf("✅ Successfully recovered malformed JSON")
 	}
 	
 	log.Printf("📝 Processing conversation from %s (agent:%s): user=%d chars, assistant=%d chars", 

@@ -1,0 +1,44 @@
+name: AGT-CLAUDE-CAPTURE-1
+cid: cid:centerfire:agent:0368F157
+type: agent
+template: claude_capture_agent
+created: 2025-09-07T01:39:26.000Z
+description: "Claude Code session capture and streaming agent"
+
+# Agent specification
+spec:
+  domain: CLAUDE-CAPTURE
+  purpose: "Claude Code session capture and streaming agent"
+  capabilities:
+    - session_capture
+    - redis_streaming
+    - conversation_tracking
+  dependencies:
+    - redis
+    - go-redis/v9
+  interfaces:
+    - redis_pubsub
+    - redis_streams
+    - file_monitoring
+  
+# Implementation details  
+implementation:
+  language: "python"
+  entry_point: "main.py"
+  requirements: "requirements.txt"
+  redis_channels:
+    - "agent.claude-capture.request"
+    - "agent.claude-capture.response" 
+  redis_streams:
+    - "centerfire:semantic:conversations"
+    - "claude:sessions:stream"
+  
+# Metadata
+metadata:
+  version: "1.0.0"
+  author: "AGT-STRUCT-1"
+  tags:
+    - claude
+    - session-capture
+    - redis-streaming
+    - conversation-tracking
