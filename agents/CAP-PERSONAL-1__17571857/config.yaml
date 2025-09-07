@@ -49,20 +49,20 @@ decision_rules:
     handler: "commander"
     
   system_commands:
-    patterns: ["check if", "is running", "status of", "restart process", "stop service", "start service"]
+    patterns: ["check if", "is running", "status of", "restart process", "stop service", "start service", "start claude", "open terminal", "tmux", "launch claude", "new session", "terminal window"]
     handler: "commander"
     
   file_operations:
     patterns: ["find files", "search for", "locate", "show me files"]
     handler: "file_analyst"
     
-  knowledge_queries:
-    patterns: ["remember when", "what did we discuss", "previous conversation"]
-    handler: "knowledge_curator"
-    
   workflow_management:
     patterns: ["create todo", "add task", "remind me to", "organize my", "plan my"]
     handler: "workflow_manager"
+    
+  context_queries:
+    patterns: ["what did we discuss", "remember when", "previous conversation", "show me history", "context about", "recall our talk", "find our conversation about", "search our chat", "what was said about"]
+    handler: "context_agent"
 
 # Conversation Flow
 conversation:

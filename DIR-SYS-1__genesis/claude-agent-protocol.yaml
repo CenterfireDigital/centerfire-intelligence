@@ -146,6 +146,14 @@ active_agents:
     models: ["codellama:13b-instruct", "mistral:7b-instruct", "llama3.1:8b"]
     contracts: ["claude_code"]
     type: "persistent"
+    
+  - id: "AGT-CONTEXT-1"
+    status: "operational_fast_weaviate_context_retrieval"
+    location: "agents/AGT-CONTEXT-1__17572052/"
+    capabilities: ["search_conversations", "get_context", "search_semantic", "get_session_history", "context_retrieval", "conversation_memory"]
+    integrations: ["Redis:6380", "Weaviate:8080", "HTTP-GraphQL"]
+    contracts: ["personal_agent", "claude_code"]
+    type: "persistent"
 
 # DEVELOPMENT STATUS - AGENT MANAGEMENT + COLLISION DETECTION COMPLETE
 foundation_complete:

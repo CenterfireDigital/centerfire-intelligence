@@ -77,7 +77,13 @@
       "Bash(./gateway)",
       "Bash(for id in 504865 377c41 4288d7 1e44eb 9d83f2 6259e7 d52be1 9bbdad 88c662)",
       "Bash(tmux list-sessions:*)",
-      "Bash(ollama list:*)"
+      "Bash(ollama list:*)",
+      "Bash(for port in 8080 8090 8380 8381 8382)",
+      "Bash(for id in 504865 377c41 4288d7 1e44eb 9d83f2 6259e7 d52be1 9bbdad 2fc899 b732f2 dbe590 88c662 d00f7b 3b6023 79e027 50201e 905593 d6b601 2778a3 f33413 d22c84 82b152 2b1a3a b2edab)",
+      "Bash(for pid in 43306 31803 18128)",
+      "Bash(do echo \"Process $pid:\")",
+      "Bash(tmux capture-pane:*)",
+      "Bash(./conversation_consumer --help)"
     ],
     "deny": [],
     "ask": []

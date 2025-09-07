@@ -349,6 +349,8 @@ func (to *TaskOrchestrator) executeTask(task *Task) (interface{}, error) {
 		return to.executeSpecialistTask(task, "todo_update")
 	case "conversation":
 		return to.executeConversationTask(task)
+	case "context_agent":
+		return to.executeContextTask(task)
 	default:
 		return nil, fmt.Errorf("unknown handler: %s", task.Handler)
 	}
@@ -403,6 +405,60 @@ func (to *TaskOrchestrator) executeConversationTask(task *Task) (interface{}, er
 	return to.queryOllama(to.agent.Config.Models.ConversationModel, input)
 }
 
+// executeContextTask sends context queries to AGT-CONTEXT-1
+func (to *TaskOrchestrator) executeContextTask(task *Task) (interface{}, error) {
+	input, ok := task.Parameters["input"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid input parameter")
+	}
+	
+	// Extract context query parameters from natural language input
+	requestData := map[string]interface{}{
+		"action":     "search_conversations",
+		"query":      input,
+		"limit":      5,
+		"client_id":  "personal_agent",
+		"request_id": fmt.Sprintf("apollo_context_%d", time.Now().UnixNano()),
+	}
+	
+	// Send to AGT-CONTEXT-1 via Redis pub/sub
+	data, _ := json.Marshal(requestData)
+	err := to.agent.RedisClient.Publish(to.agent.ctx, "agent.context.request", string(data)).Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to send context request: %v", err)
+	}
+	
+	// Wait for response from AGT-CONTEXT-1
+	pubsub := to.agent.RedisClient.Subscribe(to.agent.ctx, "agent.context.response")
+	defer pubsub.Close()
+	
+	// Set timeout for context retrieval
+	timeout := time.After(10 * time.Second)
+	
+	for {
+		select {
+		case msg := <-pubsub.Channel():
+			var response map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Payload), &response); err != nil {
+				continue
+			}
+			
+			// Check if this is our response
+			if reqID, ok := response["request_id"].(string); ok {
+				if reqID == requestData["request_id"].(string) {
+					if success, ok := response["success"].(bool); ok && success {
+						return response["data"], nil
+					} else {
+						return nil, fmt.Errorf("context query failed: %v", response["error"])
+					}
+				}
+			}
+		case <-timeout:
+			return nil, fmt.Errorf("context query timed out after 10 seconds")
+		}
+	}
+}
+
 // generateShellCommand converts natural language intent to shell command using LLM
 func (to *TaskOrchestrator) generateShellCommand(input string) (string, error) {
 	// Use decision model (gemma:2b) for lightweight command generation
@@ -420,6 +476,9 @@ Rules:
 - For listing files: use find . -name "*.ext" or ls
 - For system info: use appropriate commands like ps, df, etc.
 - For text operations: use grep, sed, awk as needed
+- For starting Claude Code: use tmux new-session -d -s claude_session && tmux send-keys -t claude_session 'claude' Enter
+- For starting tmux sessions: use tmux new-session -d -s session_name
+- For launching applications in tmux: use tmux send-keys -t session_name 'app_name' Enter
 - Return only the bare command, no markdown or quotes
 
 Command:`, input)
