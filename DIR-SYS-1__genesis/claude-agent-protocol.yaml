@@ -316,7 +316,9 @@ future_agent: "AGT-SESSION-1 for session lifecycle management"
 
 # CRITICAL REMINDERS FOR CLAUDE
 claude_instructions: |
-  ALWAYS read this file first in new sessions.
+  ALWAYS read these files first in new sessions:
+  1. This file (claude-agent-protocol.yaml) - Agent architecture and status
+  2. DIR-SYS-1__genesis/semdoc-context-summary.md - SemDoc system overview
   
   AGENT DELEGATION (NEVER create directly):
   - Directories → AGT-STRUCT-1 (working)
@@ -331,8 +333,9 @@ claude_instructions: |
   - Semantic namespacing: PROJECT.ENV.TYPE (centerfire.dev/test/prod)
   - Stream philosophy: agents MONITOR infrastructure, don't BECOME it
   - Working channels: agent.naming.request, agent.struct.request, agent.semantic.request
+  - SemDoc: AI manufacturing infrastructure with behavioral contracts (see summary file)
   
-  AUTO-READ HOOK INSTALLED: Future sessions will see reminder to read this file
+  AUTO-READ HOOK INSTALLED: Future sessions will see reminder to read both files
 
 # SESSION RECOVERY  
 steps: "Read directives → Check agent status → Start agents → Test communication"
