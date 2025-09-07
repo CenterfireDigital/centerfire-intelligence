@@ -290,9 +290,29 @@ func (cc *ClickHouseConsumer) processBatch(batch []ConversationData) {
 }
 
 func (cc *ClickHouseConsumer) requestClickHouseStartup() {
-	// TODO: Send request to AGT-STACK-1 to start ClickHouse container
-	// For now, just log the intent
-	log.Println("🚀 [TODO] Requesting AGT-STACK-1 to start ClickHouse container")
+	log.Println("🚀 Requesting AGT-STACK-1 to start ClickHouse container")
+	
+	// Send request to AGT-STACK-1 for analytics profile startup
+	stackRequest := map[string]interface{}{
+		"type":      "stack_request",
+		"client_id": "clickhouse_consumer",
+		"operation": "start_profile",
+		"profile":   "analytics",
+	}
+	
+	requestJSON, err := json.Marshal(stackRequest)
+	if err != nil {
+		log.Printf("❌ Failed to marshal stack request: %v", err)
+		return
+	}
+	
+	err = cc.redisClient.Publish(cc.ctx, "agent.stack.request", string(requestJSON)).Err()
+	if err != nil {
+		log.Printf("❌ Failed to publish stack request: %v", err)
+		return
+	}
+	
+	log.Println("📡 Stack request sent to AGT-STACK-1")
 }
 
 func main() {

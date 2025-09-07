@@ -162,6 +162,14 @@ active_agents:
     integrations: ["Redis:6380", "Redis-Streams"]
     language: "python"
     type: "persistent"
+    
+  - id: "AGT-STACK-1"
+    status: "operational_container_orchestration_and_profile_management"
+    location: "agents/AGT-STACK-1__stack1/"
+    capabilities: ["profile_management", "container_orchestration", "ephemeral_startup", "dependency_tracking", "docker_compose_integration"]
+    integrations: ["Redis:6380", "Docker", "Docker-Compose"]
+    contracts: ["clickhouse_consumer", "claude_code", "personal_agent"]
+    type: "persistent"
 
 # DEVELOPMENT STATUS - AGENT MANAGEMENT + COLLISION DETECTION COMPLETE
 foundation_complete:
@@ -232,6 +240,27 @@ current_session_achievements:
   - "COMPLETE: 100% Redis to Weaviate pipeline success rate achieved"
   - "Conversation consumer enhanced with JSON error recovery and malformed data handling"
   - "End-to-end conversation streaming: Claude Code → AGT-CLAUDE-CAPTURE-1 → Redis → Consumer → Weaviate"
+  - "COMPLETE: ClickHouse cold storage integration for massive conversation analytics"
+  - "ClickHouse Container: Profile-based deployment (--profile analytics) for on-demand startup"
+  - "Port optimization: ClickHouse TCP on 9001 to avoid Portainer conflicts"
+  - "Smart ClickHouse Consumer: Batch processing with container awareness and auto-recovery"
+  - "Cold storage architecture: Time-series partitioning, MergeTree engine for analytics queries"
+  - "Ephemeral container strategy: Start ClickHouse when needed, shutdown for resource efficiency"
+  - "Service dependency discovery: Consumer restart failures highlight need for AGT-MANAGER-1 enhancement"
+  - "Docker cleanup completed: Legacy containers removed (mem0-postgres, mem0-qdrant, postgres)"
+  - "Portainer password recovery: Official reset procedure executed successfully"
+  - "Transformers container analysis: Containerized approach confirmed optimal for isolation"
+  - "COMPLETE: AGT-STACK-1 operational for container orchestration and profile management"
+  - "Stack Agent Implementation: Docker Compose profile management with Redis pub/sub integration"
+  - "Profile Operations: start_profile, stop_profile, profile_status, list_profiles, container_status"
+  - "Container Discovery: Automatic detection of running containers and profile mapping"
+  - "ClickHouse Consumer Integration: Redis-based requests to AGT-STACK-1 for analytics startup"
+  - "Ephemeral Resource Management: On-demand container startup/shutdown for resource efficiency"
+  - "COMPLETE: Redis Consumer Flow Testing - R→C and R→W/N pipelines verified operational"
+  - "Stream Processing Verification: Both consumer groups processing 11+ entries with zero lag"
+  - "Apollo Conversation Logging Clarified: Already using Redis streams correctly via XAdd"
+  - "Semantic Naming Consistency: ClickHouse conversations inherit semantic processing from unified pipeline"
+  - "Container Orchestration Integration: AGT-STACK-1 ready for ClickHouse ephemeral startup requests"
 
 architectural_insights:
   - "Multi-tenancy: Single-agent pool with project-aware routing > multiple instances"
@@ -245,25 +274,30 @@ architectural_insights:
   - "Service discovery architecture: Well-known manager endpoint (8380) → dynamic gateway discovery"
   - "External service bootstrap: Single discovery endpoint solves Chrome plugin / web UI integration"
   - "Universal Agent Platform foundation: Ready for SFTP, web search, Puppeteer, S3, system agents"
+  - "Unified Conversation Pipeline: All conversation sources (Apollo + Claude Code) → single Redis stream → dual consumers"
+  - "Semantic Consistency: ClickHouse analytics inherit semantic naming from W/N pipeline processing"
+  - "Container Orchestration Architecture: Profile-based ephemeral containers with intelligent startup/shutdown"
 
 next_priorities:
+  - enhance_AGT-MANAGER-1_with_service_dependency_tracking_and_restart_logic
+  - implement_service_dependency_chain_management
+  - deploy_AGT-STACK-1_for_production_ephemeral_container_management
   - create_AGT-GRAPH-1_for_neo4j_relationships
   - implement_actual_W/N_clients_in_stream_processor
   - add_project_context_registration_to_AGT-MANAGER-1
-  - enhance_ephemeral_agents_with_task_result_reporting
-  - implement_agent_dependency_management_and_startup_ordering
 
 # INFRASTRUCTURE STATUS  
 active_databases:
   redis: "mem0-redis:6380 - agent pub/sub + streams + future session management"
   weaviate: "centerfire-weaviate:8080 - semantic storage with namespaces (AGT-SEMANTIC-1 active)"
   neo4j: "centerfire-neo4j:7474/7687 - graph relationships (awaiting AGT-GRAPH-1)"
+  clickhouse: "centerfire-clickhouse:8123/9001 - cold storage analytics (profile: analytics, ephemeral)"
   
-stopped_containers: "mem0-postgres:5433, mem0-qdrant:6333 - legacy dead weight (stopped, not removed)"
+cleaned_containers: "mem0-postgres, mem0-qdrant, postgres, centerfire-cpp-dev - legacy containers removed"
 
 # LEARNING PIPELINE ARCHITECTURE  
-stream_flow: "Redis Streams → W/N Consumers → Weaviate/Neo4j (conversation capture)"
-files_created: "/streams/producer/, /streams/weaviate-consumer/, /streams/neo4j-consumer/"
+stream_flow: "Redis Streams → W/N + ClickHouse Consumers → Weaviate/Neo4j/ClickHouse (conversation capture + analytics)"
+files_created: "/streams/producer/, /streams/weaviate-consumer/, /streams/neo4j-consumer/, /streams/clickhouse_consumer.go"
 governance: "AGT-STREAM-MANAGER-1 monitors dedicated consumers (not agents)"
 philosophy: "Agents MONITOR infrastructure, don't BECOME infrastructure"
 

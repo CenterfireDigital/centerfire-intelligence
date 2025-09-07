@@ -1,0 +1,40 @@
+version: '3.8'
+
+# ClickHouse Addition to Existing Centerfire Intelligence Stack
+# This shows ONLY the new service to be added to the current stack
+
+services:
+  centerfire-clickhouse:
+    image: clickhouse/clickhouse-server:23.12
+    container_name: centerfire-clickhouse
+    hostname: centerfire-clickhouse
+    ports:
+      - "8123:8123"     # HTTP interface  
+      - "9001:9000"     # Native TCP interface (avoid Portainer conflict)
+    environment:
+      - CLICKHOUSE_DB=centerfire
+      - CLICKHOUSE_USER=centerfire
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - mem0-network
+    restart: unless-stopped
+    # Only start when needed for batch processing
+    profiles:
+      - analytics
+
+volumes:
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+
+networks:
+  mem0-network:
+    external: true

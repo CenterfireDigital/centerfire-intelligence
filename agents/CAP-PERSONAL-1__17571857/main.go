@@ -630,8 +630,8 @@ func (cm *ConversationMemory) AddTurn(user, assistant string) {
 	}
 	
 	cm.history = append(cm.history, turn)
-	// Always log to W/N - fix struct reference
-	log.Printf("💾 Stored conversation turn (W/N)")
+	// Local memory storage - streaming to Redis handled separately
+	log.Printf("💾 Stored conversation turn (local memory)")
 }
 
 // StartTerminalInterface starts the interactive terminal
@@ -755,7 +755,7 @@ func (pa *PersonalAgent) AddTurnWithStreaming(user, assistant string) {
 			"turn_count":  len(pa.conversationHistory) + 1,
 		}
 		
-		// Stream to Weaviate for semantic storage
+		// Stream to Redis for W/N/C pipeline processing
 		data, _ := json.Marshal(conversationData)
 		pa.RedisClient.XAdd(pa.ctx, &redis.XAddArgs{
 			Stream: "centerfire:semantic:conversations",
@@ -763,6 +763,10 @@ func (pa *PersonalAgent) AddTurnWithStreaming(user, assistant string) {
 				"data": string(data),
 			},
 		})
+		
+		if !pa.Config.Personality.QuietTerminal {
+			log.Printf("📡 Streamed conversation to Redis (W/N/C pipeline)")
+		}
 	}
 }
 

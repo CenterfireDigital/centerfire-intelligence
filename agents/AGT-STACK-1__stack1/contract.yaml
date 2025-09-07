@@ -1,0 +1,27 @@
+clients:
+  clickhouse_consumer:
+    operations:
+      - "start_clickhouse"
+      - "stop_clickhouse" 
+      - "status_clickhouse"
+      - "profile_start"
+      - "profile_stop"
+    profiles: ["analytics"]
+    containers: ["centerfire-clickhouse"]
+  
+  claude_code:
+    operations:
+      - "list_profiles"
+      - "start_profile"
+      - "stop_profile"
+      - "container_status"
+    profiles: ["*"]
+    containers: ["*"]
+    
+  # Future agent clients
+  personal_agent:
+    operations:
+      - "container_status"
+      - "profile_status"
+    profiles: ["analytics"]
+    containers: ["centerfire-clickhouse", "centerfire-weaviate", "centerfire-neo4j"]
