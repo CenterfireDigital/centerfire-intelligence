@@ -57,6 +57,24 @@ type AgentDefinition struct {
 	Description string    `json:"description"`
 	AutoShutdown bool     `json:"auto_shutdown"` // for ephemeral agents
 	MaxRuntime  int64     `json:"max_runtime"`   // seconds, 0 = unlimited
+	Dependencies []ServiceDependency `json:"dependencies"` // service dependencies
+	HealthCheck  *HealthCheckConfig   `json:"health_check,omitempty"` // health validation
+}
+
+type ServiceDependency struct {
+	Service     string `json:"service"`     // e.g., "redis", "docker", "clickhouse"
+	Type        string `json:"type"`        // "infrastructure", "agent", "container"
+	Endpoint    string `json:"endpoint"`    // connection string or check command
+	Critical    bool   `json:"critical"`    // if true, agent can't start without this dependency
+	RetryCount  int    `json:"retry_count"` // number of retries before marking unavailable
+	RetryDelay  int    `json:"retry_delay"` // seconds between retries
+}
+
+type HealthCheckConfig struct {
+	Command     string `json:"command"`      // health check command
+	Interval    int    `json:"interval"`     // seconds between health checks
+	Timeout     int    `json:"timeout"`      // seconds before timeout
+	Retries     int    `json:"retries"`      // number of failed checks before unhealthy
 }
 
 type AgentRequest struct {
@@ -67,6 +85,8 @@ type AgentRequest struct {
 	TaskID      string                 `json:"task_id,omitempty"`      // for ephemeral agents
 	TaskData    map[string]interface{} `json:"task_data,omitempty"`    // task-specific data
 	AgentDef    *AgentDefinition       `json:"agent_def,omitempty"`    // for registering agents
+	DependencyCheck bool               `json:"dependency_check,omitempty"` // validate dependencies
+	ForceRestart    bool               `json:"force_restart,omitempty"`    // ignore dependency failures
 }
 
 func NewAgentManager() *AgentManager {
@@ -188,6 +208,12 @@ func (am *AgentManager) processRequest(payload string) {
 		am.handleListRegistry(request)
 	case "get_agent_definition":
 		am.handleGetAgentDefinition(request)
+	case "check_dependencies":
+		am.handleCheckDependencies(request)
+	case "validate_service_health":
+		am.handleValidateServiceHealth(request)
+	case "restart_with_dependencies":
+		am.handleRestartWithDependencies(request)
 	default:
 		fmt.Printf("Unknown request type: %s\n", request.RequestType)
 	}
@@ -448,6 +474,15 @@ func (am *AgentManager) initializeAgentRegistry() {
 		Description: "Core naming and identifier allocation service",
 		AutoShutdown: false,
 		MaxRuntime:  0, // unlimited
+		Dependencies: []ServiceDependency{
+			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 3, RetryDelay: 5},
+		},
+		HealthCheck: &HealthCheckConfig{
+			Command: "redis-cli -h localhost -p 6380 ping",
+			Interval: 30,
+			Timeout: 5,
+			Retries: 3,
+		},
 	}
 	
 	am.agentRegistry["AGT-SEMANTIC-1"] = &AgentDefinition{
@@ -458,6 +493,17 @@ func (am *AgentManager) initializeAgentRegistry() {
 		Description: "Core semantic analysis and storage service",
 		AutoShutdown: false,
 		MaxRuntime:  0,
+		Dependencies: []ServiceDependency{
+			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 3, RetryDelay: 5},
+			{Service: "weaviate", Type: "infrastructure", Endpoint: "localhost:8080", Critical: true, RetryCount: 3, RetryDelay: 10},
+			{Service: "AGT-NAMING-1", Type: "agent", Endpoint: "centerfire:agent:naming", Critical: true, RetryCount: 2, RetryDelay: 3},
+		},
+		HealthCheck: &HealthCheckConfig{
+			Command: "curl -s http://localhost:8080/v1/meta",
+			Interval: 60,
+			Timeout: 10,
+			Retries: 2,
+		},
 	}
 	
 	am.agentRegistry["AGT-STRUCT-1"] = &AgentDefinition{
@@ -468,16 +514,44 @@ func (am *AgentManager) initializeAgentRegistry() {
 		Description: "Core directory and file structure management service",
 		AutoShutdown: false,
 		MaxRuntime:  0,
+		Dependencies: []ServiceDependency{
+			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 3, RetryDelay: 5},
+			{Service: "AGT-NAMING-1", Type: "agent", Endpoint: "centerfire:agent:naming", Critical: true, RetryCount: 2, RetryDelay: 3},
+		},
 	}
 	
 	am.agentRegistry["AGT-MANAGER-1"] = &AgentDefinition{
 		Name:        "AGT-MANAGER-1",
 		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-MANAGER-1__manager1",
 		Type:        PersistentAgent,
-		Capabilities: []string{"singleton_enforcement", "collision_detection", "process_monitoring", "agent_registry"},
-		Description: "Agent lifecycle and process management service",
+		Capabilities: []string{"singleton_enforcement", "collision_detection", "process_monitoring", "agent_registry", "dependency_tracking", "service_health_validation"},
+		Description: "Agent lifecycle and process management service with dependency tracking",
 		AutoShutdown: false,
 		MaxRuntime:  0,
+		Dependencies: []ServiceDependency{
+			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 5, RetryDelay: 3},
+		},
+	}
+	
+	// Add AGT-STACK-1 for container orchestration
+	am.agentRegistry["AGT-STACK-1"] = &AgentDefinition{
+		Name:        "AGT-STACK-1",
+		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-STACK-1__stack1",
+		Type:        PersistentAgent,
+		Capabilities: []string{"profile_management", "container_orchestration", "ephemeral_startup", "dependency_tracking"},
+		Description: "Container orchestration and profile management service",
+		AutoShutdown: false,
+		MaxRuntime:  0,
+		Dependencies: []ServiceDependency{
+			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 3, RetryDelay: 5},
+			{Service: "docker", Type: "infrastructure", Endpoint: "docker ps", Critical: true, RetryCount: 3, RetryDelay: 5},
+		},
+		HealthCheck: &HealthCheckConfig{
+			Command: "docker ps --format 'table {{.Names}}'\t{{.Status}}'",
+			Interval: 60,
+			Timeout: 10,
+			Retries: 2,
+		},
 	}
 	
 	// Register known ephemeral agents
@@ -489,6 +563,10 @@ func (am *AgentManager) initializeAgentRegistry() {
 		Description: "Data cleanup and maintenance service",
 		AutoShutdown: true,
 		MaxRuntime:  300, // 5 minutes max runtime
+		Dependencies: []ServiceDependency{
+			{Service: "weaviate", Type: "infrastructure", Endpoint: "localhost:8080", Critical: true, RetryCount: 2, RetryDelay: 10},
+			{Service: "neo4j", Type: "infrastructure", Endpoint: "localhost:7474", Critical: false, RetryCount: 2, RetryDelay: 5},
+		},
 	}
 	
 	am.agentRegistry["AGT-SEMDOC-1"] = &AgentDefinition{
@@ -726,6 +804,22 @@ func (am *AgentManager) startAgent(agentName string, sessionData map[string]inte
 		}
 		if isRunning {
 			return fmt.Errorf("agent %s is already running (singleton constraint): %s", agentName, details)
+		}
+	}
+	
+	// Validate dependencies before starting (unless explicitly disabled)
+	dependencyCheck := true
+	if sessionData != nil {
+		if dc, ok := sessionData["dependency_check"]; ok {
+			if dcBool, ok := dc.(bool); ok {
+				dependencyCheck = dcBool
+			}
+		}
+	}
+	
+	if dependencyCheck {
+		if err := am.validateAgentDependencies(agentName); err != nil {
+			return fmt.Errorf("dependency validation failed for %s: %v", agentName, err)
 		}
 	}
 
@@ -1081,6 +1175,16 @@ func (am *AgentManager) checkAgentHealth() {
 				// TODO: For persistent agents, trigger diagnostic agent to investigate
 				if agentProcess.AgentType == PersistentAgent {
 					fmt.Printf("%s: ALERT - Persistent agent %s died, diagnostic needed\n", am.AgentID, agentName)
+					// Attempt dependency-aware restart after a delay
+					go func() {
+						time.Sleep(time.Second * 10) // Wait 10 seconds before attempting restart
+						fmt.Printf("%s: Attempting automatic restart of %s\n", am.AgentID, agentName)
+						if err := am.startAgent(agentName, nil); err != nil {
+							fmt.Printf("%s: Automatic restart failed for %s: %v\n", am.AgentID, agentName, err)
+						} else {
+							fmt.Printf("%s: Successfully restarted %s\n", am.AgentID, agentName)
+						}
+					}()
 				}
 			} else {
 				fmt.Printf("%s: Agent %s missed heartbeat but PID %d still running\n",
@@ -1321,6 +1425,306 @@ func (am *AgentManager) handleRoot(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// Service Dependency Tracking Methods
+
+// handleCheckDependencies validates dependencies for a specific agent
+func (am *AgentManager) handleCheckDependencies(request AgentRequest) {
+	agentName := request.AgentName
+	fmt.Printf("%s: Checking dependencies for agent %s\n", am.AgentID, agentName)
+	
+	agentDef, exists := am.agentRegistry[agentName]
+	if !exists {
+		am.publishResponse(map[string]interface{}{
+			"status": "error",
+			"agent":  agentName,
+			"error":  "Agent not found in registry",
+		})
+		return
+	}
+	
+	dependencyResults := make([]map[string]interface{}, 0)
+	allHealthy := true
+	
+	for _, dep := range agentDef.Dependencies {
+		result := am.checkServiceDependency(dep)
+		dependencyResults = append(dependencyResults, result)
+		if !result["healthy"].(bool) && dep.Critical {
+			allHealthy = false
+		}
+	}
+	
+	am.publishResponse(map[string]interface{}{
+		"status":       "ok",
+		"agent":        agentName,
+		"all_healthy":  allHealthy,
+		"dependencies": dependencyResults,
+	})
+}
+
+// handleValidateServiceHealth runs health checks for a specific service
+func (am *AgentManager) handleValidateServiceHealth(request AgentRequest) {
+	serviceName := request.AgentName // reusing agent_name field for service name
+	fmt.Printf("%s: Validating health for service %s\n", am.AgentID, serviceName)
+	
+	// Find agents that depend on this service
+	affectedAgents := make([]string, 0)
+	for agentName, agentDef := range am.agentRegistry {
+		for _, dep := range agentDef.Dependencies {
+			if dep.Service == serviceName {
+				affectedAgents = append(affectedAgents, agentName)
+				break
+			}
+		}
+	}
+	
+	// Check service health using first matching dependency config
+	var healthResult map[string]interface{}
+	for _, agentDef := range am.agentRegistry {
+		for _, dep := range agentDef.Dependencies {
+			if dep.Service == serviceName {
+				healthResult = am.checkServiceDependency(dep)
+				break
+			}
+		}
+		if healthResult != nil {
+			break
+		}
+	}
+	
+	if healthResult == nil {
+		healthResult = map[string]interface{}{
+			"service": serviceName,
+			"healthy": false,
+			"error":   "Service not found in any agent dependencies",
+		}
+	}
+	
+	am.publishResponse(map[string]interface{}{
+		"status":          "ok",
+		"service":         serviceName,
+		"health":          healthResult,
+		"affected_agents": affectedAgents,
+	})
+}
+
+// handleRestartWithDependencies performs dependency-aware agent restart
+func (am *AgentManager) handleRestartWithDependencies(request AgentRequest) {
+	agentName := request.AgentName
+	fmt.Printf("%s: Dependency-aware restart for agent %s\n", am.AgentID, agentName)
+	
+	agentDef, exists := am.agentRegistry[agentName]
+	if !exists {
+		am.publishResponse(map[string]interface{}{
+			"status": "error",
+			"agent":  agentName,
+			"error":  "Agent not found in registry",
+		})
+		return
+	}
+	
+	// Check dependencies unless force restart is requested
+	if !request.ForceRestart {
+		fmt.Printf("%s: Validating dependencies for %s before restart\n", am.AgentID, agentName)
+		
+		criticalFailures := make([]string, 0)
+		for _, dep := range agentDef.Dependencies {
+			result := am.checkServiceDependency(dep)
+			if !result["healthy"].(bool) && dep.Critical {
+				criticalFailures = append(criticalFailures, dep.Service)
+			}
+		}
+		
+		if len(criticalFailures) > 0 {
+			am.publishResponse(map[string]interface{}{
+				"status":            "dependency_failure",
+				"agent":             agentName,
+				"critical_failures": criticalFailures,
+				"message":           fmt.Sprintf("Cannot restart %s - critical dependencies unavailable", agentName),
+			})
+			return
+		}
+	}
+	
+	// Proceed with restart
+	fmt.Printf("%s: Dependencies validated, proceeding with restart of %s\n", am.AgentID, agentName)
+	am.handleRestartAgent(request)
+}
+
+// checkServiceDependency validates a specific service dependency
+func (am *AgentManager) checkServiceDependency(dep ServiceDependency) map[string]interface{} {
+	result := map[string]interface{}{
+		"service":  dep.Service,
+		"type":     dep.Type,
+		"endpoint": dep.Endpoint,
+		"critical": dep.Critical,
+		"healthy":  false,
+		"attempts": 0,
+	}
+	
+	// Attempt to validate dependency with retries
+	for attempt := 1; attempt <= dep.RetryCount; attempt++ {
+		result["attempts"] = attempt
+		
+		healthy, checkResult := am.performDependencyCheck(dep)
+		if healthy {
+			result["healthy"] = true
+			result["check_result"] = checkResult
+			return result
+		}
+		
+		if attempt < dep.RetryCount {
+			fmt.Printf("%s: Dependency check failed for %s (attempt %d/%d), retrying in %ds\n", 
+				am.AgentID, dep.Service, attempt, dep.RetryCount, dep.RetryDelay)
+			time.Sleep(time.Duration(dep.RetryDelay) * time.Second)
+		}
+	}
+	
+	result["error"] = fmt.Sprintf("Failed after %d attempts", dep.RetryCount)
+	return result
+}
+
+// performDependencyCheck executes the actual dependency validation
+func (am *AgentManager) performDependencyCheck(dep ServiceDependency) (bool, string) {
+	switch dep.Type {
+	case "infrastructure":
+		return am.checkInfrastructureDependency(dep)
+	case "agent":
+		return am.checkAgentDependency(dep)
+	case "container":
+		return am.checkContainerDependency(dep)
+	default:
+		return false, fmt.Sprintf("Unknown dependency type: %s", dep.Type)
+	}
+}
+
+// checkInfrastructureDependency validates infrastructure services (Redis, Weaviate, etc.)
+func (am *AgentManager) checkInfrastructureDependency(dep ServiceDependency) (bool, string) {
+	switch dep.Service {
+	case "redis":
+		// Check Redis connection
+		_, err := am.RedisClient.Ping(am.ctx).Result()
+		if err != nil {
+			return false, fmt.Sprintf("Redis ping failed: %v", err)
+		}
+		return true, "Redis ping successful"
+		
+	case "weaviate":
+		// Check Weaviate endpoint
+		cmd := exec.Command("curl", "-s", "-f", "http://localhost:8080/v1/meta")
+		output, err := cmd.Output()
+		if err != nil {
+			return false, fmt.Sprintf("Weaviate health check failed: %v", err)
+		}
+		return true, fmt.Sprintf("Weaviate responding: %s", string(output)[:100])
+		
+	case "docker":
+		// Check Docker daemon
+		cmd := exec.Command("docker", "ps")
+		_, err := cmd.Output()
+		if err != nil {
+			return false, fmt.Sprintf("Docker daemon check failed: %v", err)
+		}
+		return true, "Docker daemon responding"
+		
+	case "neo4j":
+		// Check Neo4j endpoint
+		cmd := exec.Command("curl", "-s", "-f", "http://localhost:7474")
+		_, err := cmd.Output()
+		if err != nil {
+			return false, fmt.Sprintf("Neo4j health check failed: %v", err)
+		}
+		return true, "Neo4j responding"
+		
+	case "clickhouse":
+		// Check ClickHouse endpoint
+		cmd := exec.Command("curl", "-s", "-f", "http://localhost:8123/ping")
+		_, err := cmd.Output()
+		if err != nil {
+			return false, fmt.Sprintf("ClickHouse health check failed: %v", err)
+		}
+		return true, "ClickHouse responding"
+		
+	default:
+		return false, fmt.Sprintf("Unknown infrastructure service: %s", dep.Service)
+	}
+}
+
+// checkAgentDependency validates that required agents are running and responsive
+func (am *AgentManager) checkAgentDependency(dep ServiceDependency) (bool, string) {
+	// Check if agent is registered as running
+	if agentProcess, exists := am.runningAgents[dep.Service]; exists {
+		// Validate PID is still running
+		if am.isProcessRunning(agentProcess.PID) {
+			// Check recent heartbeat
+			if time.Since(agentProcess.LastHeartbeat) < am.heartbeatTimeout {
+				return true, fmt.Sprintf("Agent %s running (PID %d, last heartbeat %v)", 
+					dep.Service, agentProcess.PID, agentProcess.LastHeartbeat)
+			} else {
+				return false, fmt.Sprintf("Agent %s heartbeat timeout (last: %v)", 
+					dep.Service, agentProcess.LastHeartbeat)
+			}
+		} else {
+			return false, fmt.Sprintf("Agent %s process dead (PID %d)", dep.Service, agentProcess.PID)
+		}
+	}
+	
+	return false, fmt.Sprintf("Agent %s not registered as running", dep.Service)
+}
+
+// checkContainerDependency validates Docker containers are running
+func (am *AgentManager) checkContainerDependency(dep ServiceDependency) (bool, string) {
+	// Use endpoint as container name
+	containerName := dep.Endpoint
+	cmd := exec.Command("docker", "inspect", containerName, "--format", "{{.State.Status}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Sprintf("Container %s not found: %v", containerName, err)
+	}
+	
+	status := strings.TrimSpace(string(output))
+	if status == "running" {
+		return true, fmt.Sprintf("Container %s is running", containerName)
+	} else {
+		return false, fmt.Sprintf("Container %s status: %s", containerName, status)
+	}
+}
+
+// validateAgentDependencies checks all critical dependencies for an agent
+func (am *AgentManager) validateAgentDependencies(agentName string) error {
+	agentDef, exists := am.agentRegistry[agentName]
+	if !exists {
+		return fmt.Errorf("agent %s not found in registry", agentName)
+	}
+	
+	if len(agentDef.Dependencies) == 0 {
+		fmt.Printf("%s: No dependencies defined for %s, skipping validation\n", am.AgentID, agentName)
+		return nil
+	}
+	
+	fmt.Printf("%s: Validating %d dependencies for %s\n", am.AgentID, len(agentDef.Dependencies), agentName)
+	
+	criticalFailures := make([]string, 0)
+	for _, dep := range agentDef.Dependencies {
+		result := am.checkServiceDependency(dep)
+		
+		if !result["healthy"].(bool) {
+			if dep.Critical {
+				criticalFailures = append(criticalFailures, fmt.Sprintf("%s (%s)", dep.Service, result["error"]))
+			} else {
+				fmt.Printf("%s: Non-critical dependency %s is unhealthy: %v\n", am.AgentID, dep.Service, result["error"])
+			}
+		} else {
+			fmt.Printf("%s: Dependency %s validated successfully\n", am.AgentID, dep.Service)
+		}
+	}
+	
+	if len(criticalFailures) > 0 {
+		return fmt.Errorf("critical dependencies unavailable: %v", criticalFailures)
+	}
+	
+	return nil
 }
 
 // corsMiddleware adds CORS headers for cross-origin requests

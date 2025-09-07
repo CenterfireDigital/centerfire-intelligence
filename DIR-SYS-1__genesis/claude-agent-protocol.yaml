@@ -107,9 +107,9 @@ active_agents:
     type: "persistent"
     
   - id: "AGT-MANAGER-1"
-    status: "enhanced_with_agent_registry_and_ephemeral_lifecycle"
+    status: "enhanced_with_service_dependency_tracking_and_automatic_recovery"
     location: "agents/AGT-MANAGER-1__manager1/"
-    capabilities: ["singleton_enforcement", "collision_detection", "process_monitoring", "agent_registry", "ephemeral_spawning", "timeout_management"]
+    capabilities: ["singleton_enforcement", "collision_detection", "process_monitoring", "agent_registry", "ephemeral_spawning", "timeout_management", "dependency_tracking", "service_health_validation", "automatic_recovery"]
     integrations: ["Redis:6380"]
     type: "persistent"
     
@@ -261,6 +261,12 @@ current_session_achievements:
   - "Apollo Conversation Logging Clarified: Already using Redis streams correctly via XAdd"
   - "Semantic Naming Consistency: ClickHouse conversations inherit semantic processing from unified pipeline"
   - "Container Orchestration Integration: AGT-STACK-1 ready for ClickHouse ephemeral startup requests"
+  - "COMPLETE: AGT-MANAGER-1 enhanced with comprehensive service dependency tracking and automatic recovery"
+  - "Service Dependency Architecture: Infrastructure, Agent, and Container dependency validation with retry logic"
+  - "Dependency-Aware Restarts: Pre-start validation prevents agents from starting without required services"
+  - "Automatic Recovery Enhancement: Persistent agents auto-restart only after dependency validation"
+  - "Health Validation System: On-demand service health checks with affected agent analysis"
+  - "Registry Enhancement: All core agents now have dependency definitions (Redis, Weaviate, Docker, agent dependencies)"
 
 architectural_insights:
   - "Multi-tenancy: Single-agent pool with project-aware routing > multiple instances"
@@ -277,10 +283,11 @@ architectural_insights:
   - "Unified Conversation Pipeline: All conversation sources (Apollo + Claude Code) → single Redis stream → dual consumers"
   - "Semantic Consistency: ClickHouse analytics inherit semantic naming from W/N pipeline processing"
   - "Container Orchestration Architecture: Profile-based ephemeral containers with intelligent startup/shutdown"
+  - "Service Dependency Management: Comprehensive dependency tracking with infrastructure/agent/container validation"
+  - "Resilient Agent Architecture: Dependency-aware restarts prevent cascade failures and improve system stability"
 
 next_priorities:
-  - enhance_AGT-MANAGER-1_with_service_dependency_tracking_and_restart_logic
-  - implement_service_dependency_chain_management
+  - implement_service_dependency_chain_management_with_ordered_startup
   - deploy_AGT-STACK-1_for_production_ephemeral_container_management
   - create_AGT-GRAPH-1_for_neo4j_relationships
   - implement_actual_W/N_clients_in_stream_processor

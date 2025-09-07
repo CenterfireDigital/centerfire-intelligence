@@ -1,0 +1,24 @@
+name: CAP-CLAUDE-CAPTURE-3
+cid: cid:centerfire:capability:17572091
+type: capability
+template: default_capability
+created: 2025-09-06T20:38:30-05:00
+description: "Auto-generated capability specification"
+
+# Capability specification
+spec:
+  domain: ""
+  purpose: ""
+  dependencies: []
+  interfaces: []
+  
+# Implementation details  
+implementation:
+  language: "go"
+  entry_point: "main.go"
+  
+# Metadata
+metadata:
+  version: "1.0.0"
+  author: "AGT-STRUCT-1"
+  tags: []
