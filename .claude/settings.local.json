@@ -93,7 +93,8 @@
       "Bash(docker pull:*)",
       "Bash(docker-compose:*)",
       "Bash(docker stats:*)",
-      "Bash(./clickhouse_consumer:*)"
+      "Bash(./clickhouse_consumer:*)",
+      "WebFetch(domain:casbin.org)"
     ],
     "deny": [],
     "ask": []
