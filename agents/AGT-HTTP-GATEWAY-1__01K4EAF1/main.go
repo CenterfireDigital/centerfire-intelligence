@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -321,8 +322,8 @@ func (h *HTTPGatewayAgent) handleSystemHealth(w http.ResponseWriter, r *http.Req
 		Data: map[string]interface{}{
 			"timestamp":    time.Now(),
 			"check_duration": time.Since(startTime).Milliseconds(),
-			"containers":   containers,
 			"agents":      agents,
+			"containers":   containers,
 			"redis":       redisHealth,
 			"endpoints":   endpoints,
 			"summary":     summary,
@@ -355,21 +356,170 @@ func (h *HTTPGatewayAgent) getDockerContainerStatus() []map[string]interface{} {
 }
 
 func (h *HTTPGatewayAgent) getAgentProcessStatus() []map[string]interface{} {
+	// Get dual verification: Manager registry vs actual process detection
+	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+	defer cancel()
+	
+	// Try to get agent registry from AGT-MANAGER-1
+	registryData, err := h.redisClient.HGetAll(ctx, "centerfire:agents:registry").Result()
+	
+	// Create agent map for comparison
+	agentMap := make(map[string]map[string]interface{})
+	
+	// Process Manager registry data
+	if err == nil && len(registryData) > 0 {
+		for agentID, agentDataStr := range registryData {
+			var agentData map[string]interface{}
+			if err := json.Unmarshal([]byte(agentDataStr), &agentData); err != nil {
+				continue
+			}
+			
+			// Extract capabilities
+			capabilities, _ := agentData["capabilities"].([]interface{})
+			capStrings := make([]string, len(capabilities))
+			for i, cap := range capabilities {
+				if capStr, ok := cap.(string); ok {
+					capStrings[i] = capStr
+				}
+			}
+			
+			agentMap[agentID] = map[string]interface{}{
+				"name":         agentID,
+				"type":         agentData["type"],
+				"capabilities": capStrings,
+				"integrations": agentData["integrations"],
+				"location":     agentData["location"],
+				"manager_status": agentData["status"],
+				"has_registry": true,
+			}
+		}
+	}
+	
+	// Add expected agents that might not be in registry
 	expectedAgents := []string{
 		"AGT-NAMING-1", "AGT-CONTEXT-1", "AGT-MANAGER-1",
 		"AGT-SYSTEM-COMMANDER-1", "AGT-CLAUDE-CAPTURE-1", "AGT-STACK-1",
+		"AGT-HTTP-GATEWAY-1", "AGT-SEMDOC-PARSER-1",
+	}
+	
+	for _, agentID := range expectedAgents {
+		if _, exists := agentMap[agentID]; !exists {
+			agentMap[agentID] = map[string]interface{}{
+				"name":         agentID,
+				"type":         "unknown",
+				"capabilities": []string{},
+				"integrations": []string{},
+				"location":     "unknown",
+				"manager_status": "not_registered",
+				"has_registry": false,
+			}
+		}
+	}
+	
+	// Now add actual process detection for all agents
+	var agents []map[string]interface{}
+	for agentID, agentInfo := range agentMap {
+		processRunning, processStatus := h.checkAgentRunning(agentID)
+		
+		// Determine overall status and any discrepancies
+		managerRunning := agentInfo["manager_status"] == "operational" || agentInfo["manager_status"] == "running"
+		var overallStatus string
+		var statusClass string
+		
+		if !agentInfo["has_registry"].(bool) {
+			// No registry entry
+			if processRunning {
+				overallStatus = "Running (unregistered)"
+				statusClass = "warning"
+			} else {
+				overallStatus = "Not running"
+				statusClass = "stopped"
+			}
+		} else if managerRunning && processRunning {
+			overallStatus = "Running (verified)"
+			statusClass = "running"
+		} else if managerRunning && !processRunning {
+			overallStatus = "Manager thinks running, but not found"
+			statusClass = "warning"
+		} else if !managerRunning && processRunning {
+			overallStatus = "Running but not in registry"
+			statusClass = "warning"
+		} else {
+			overallStatus = "Not running"
+			statusClass = "stopped"
+		}
+		
+		agentInfo["process_running"] = processRunning
+		agentInfo["process_status"] = processStatus
+		agentInfo["running"] = processRunning // For backward compatibility
+		agentInfo["status"] = overallStatus
+		agentInfo["status_class"] = statusClass
+		agentInfo["registry_vs_process"] = map[string]interface{}{
+			"manager_running": managerRunning,
+			"process_running": processRunning,
+			"match": managerRunning == processRunning,
+		}
+		
+		agents = append(agents, agentInfo)
+	}
+	
+	return agents
+}
+
+// getBasicAgentStatus provides fallback agent status when registry is unavailable
+func (h *HTTPGatewayAgent) getBasicAgentStatus() []map[string]interface{} {
+	expectedAgents := []string{
+		"AGT-NAMING-1", "AGT-CONTEXT-1", "AGT-MANAGER-1",
+		"AGT-SYSTEM-COMMANDER-1", "AGT-CLAUDE-CAPTURE-1", "AGT-STACK-1",
+		"AGT-HTTP-GATEWAY-1", "AGT-SEMDOC-PARSER-1",
 	}
 	
 	agents := make([]map[string]interface{}, len(expectedAgents))
 	for i, name := range expectedAgents {
+		running, status := h.checkAgentRunning(name)
 		agents[i] = map[string]interface{}{
 			"name": name,
 			"expected": true,
-			"running": false, // Will be dynamically checked later
-			"status": "Not running",
+			"running": running,
+			"status": status,
+			"type": "unknown",
+			"capabilities": []string{},
+			"integrations": []string{},
+			"location": "unknown",
 		}
 	}
 	return agents
+}
+
+// checkAgentRunning checks if a specific agent is running
+func (h *HTTPGatewayAgent) checkAgentRunning(agentName string) (bool, string) {
+	// Check process list for agent patterns
+	processPatterns := map[string][]string{
+		"AGT-NAMING-1":         {"agt-naming-1", "AGT-NAMING-1"},
+		"AGT-CONTEXT-1":        {"agt-context-1", "AGT-CONTEXT-1"},
+		"AGT-MANAGER-1":        {"agt-manager-1", "AGT-MANAGER-1"},
+		"AGT-SYSTEM-COMMANDER-1": {"agt-system-commander-1", "AGT-SYSTEM-COMMANDER-1"},
+		"AGT-CLAUDE-CAPTURE-1": {"agt-claude-capture-1", "AGT-CLAUDE-CAPTURE-1"},
+		"AGT-STACK-1":          {"agt-stack-1", "AGT-STACK-1"},
+		"AGT-HTTP-GATEWAY-1":   {"./gateway", "gateway", "AGT-HTTP-GATEWAY-1"},
+		"AGT-SEMDOC-PARSER-1":  {"SEMDOC-PARSER", "AGT-SEMDOC-PARSER-1"},
+	}
+	
+	patterns := processPatterns[agentName]
+	if len(patterns) == 0 {
+		return false, "Unknown agent"
+	}
+	
+	// Check if any matching processes are running
+	for _, pattern := range patterns {
+		cmd := fmt.Sprintf("pgrep -f '%s' | head -1", pattern)
+		out, err := exec.Command("sh", "-c", cmd).Output()
+		if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+			return true, "Running"
+		}
+	}
+	
+	return false, "Not running"
 }
 
 func (h *HTTPGatewayAgent) getRedisHealth() map[string]interface{} {

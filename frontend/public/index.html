@@ -270,7 +270,7 @@
             
             try {
                 // Call HTTP Gateway's system health endpoint
-                const response = await fetch('http://localhost:8092/api/system/health');
+                const response = await fetch('http://localhost:8090/api/system/health');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
