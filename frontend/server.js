@@ -9,8 +9,17 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = 9191; // High port to avoid conflicts with other services
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files (prefer built Vite app if present)
+const viteDist = path.join(__dirname, 'web', 'dist')
+const publicDir = path.join(__dirname, 'public')
+const fs = require('fs')
+if (fs.existsSync(viteDist)) {
+  console.log('Serving static from web/dist (Vite build)')
+  app.use(express.static(viteDist))
+} else {
+  console.log('Serving static from public (legacy)')
+  app.use(express.static(publicDir))
+}
 
 // Expected containers
 const EXPECTED_CONTAINERS = [
@@ -144,16 +153,60 @@ async function checkServiceEndpoints() {
     return results;
 }
 
+async function checkGitStatus() {
+    try {
+        const [statusResult, branchResult] = await Promise.all([
+            execAsync('git status --porcelain'),
+            execAsync('git branch --show-current')
+        ]);
+
+        const files = statusResult.stdout.trim();
+        const currentBranch = branchResult.stdout.trim();
+        
+        // Parse git status output
+        const changes = files ? files.split('\n').map(line => {
+            const status = line.substring(0, 2);
+            const file = line.substring(3);
+            return { status: status.trim(), file };
+        }) : [];
+
+        // Get ahead/behind info
+        let aheadBehind = null;
+        try {
+            const { stdout } = await execAsync(`git rev-list --count --left-right origin/${currentBranch}...HEAD 2>/dev/null || echo "0	0"`);
+            const [behind, ahead] = stdout.trim().split('\t').map(Number);
+            aheadBehind = { ahead, behind };
+        } catch (e) {
+            // Ignore if no remote tracking
+        }
+
+        return {
+            branch: currentBranch,
+            clean: changes.length === 0,
+            changes: changes.length,
+            files: changes,
+            aheadBehind,
+            lastCheck: new Date().toISOString()
+        };
+    } catch (error) {
+        return {
+            error: error.message,
+            available: false
+        };
+    }
+}
+
 // Main health check endpoint
 app.get('/api/health', async (req, res) => {
     const startTime = Date.now();
     
     try {
-        const [containers, agents, redis, endpoints] = await Promise.all([
+        const [containers, agents, redis, endpoints, git] = await Promise.all([
             checkDockerContainers(),
             checkAgentProcesses(), 
             checkRedisHealth(),
-            checkServiceEndpoints()
+            checkServiceEndpoints(),
+            checkGitStatus()
         ]);
 
         const healthData = {
@@ -163,13 +216,17 @@ app.get('/api/health', async (req, res) => {
             agents,
             redis,
             endpoints,
+            git,
             summary: {
                 containersRunning: containers.filter(c => c.running).length,
                 containersExpected: EXPECTED_CONTAINERS.length,
                 agentsRunning: agents.filter(a => a.running).length,
                 agentsExpected: EXPECTED_AGENTS.length,
                 redisConnected: redis.connected,
-                endpointsAccessible: endpoints.filter(e => e.accessible).length
+                endpointsAccessible: endpoints.filter(e => e.accessible).length,
+                gitClean: git.clean || false,
+                gitChanges: git.changes || 0,
+                gitBranch: git.branch || 'unknown'
             }
         };
 
@@ -185,7 +242,11 @@ app.get('/api/health', async (req, res) => {
 
 // Serve the main page
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    if (fs.existsSync(path.join(viteDist, 'index.html'))) {
+        res.sendFile(path.join(viteDist, 'index.html'))
+    } else {
+        res.sendFile(path.join(publicDir, 'index.html'))
+    }
 });
 
 app.listen(PORT, () => {

@@ -293,6 +293,9 @@
         .section-content {
             padding: 1rem;
         }
+        .log-box { background: #0f131a; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.75rem 0.9rem; font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; white-space: pre-wrap; max-height: 220px; overflow: auto; position: relative; }
+        .log-box .more-indicator { position: sticky; bottom: 0; text-align: right; font-size: 0.8rem; color: #9aa4b2; padding-top: 4px; background: linear-gradient(180deg, rgba(15,19,26,0), rgba(15,19,26,0.9)); display: none; }
+        .log-box.has-overflow .more-indicator { display: block; }
         
         .status-grid {
             display: grid;
@@ -447,6 +450,13 @@
             <div class="summary" id="summary"></div>
             
             <div class="section">
+                <div class="section-header">📦 Git Status</div>
+                <div class="section-content">
+                    <div id="gitstatus" class="log-box"><pre style="margin:0">Loading…</pre><div class="more-indicator">More…</div></div>
+                </div>
+            </div>
+
+            <div class="section">
                 <div class="section-header">🤖 Agent Processes</div>
                 <div class="section-content">
                     <div class="status-grid" id="agents"></div>
@@ -558,6 +568,7 @@
             renderRedis(data.redis);
             renderEndpoints(data.endpoints);
             renderMetadata(data);
+            renderGitStatus(data);
 
             // Animate counts using previous data snapshot
             if (prevData) {
@@ -701,6 +712,31 @@
                     </span>
                 </div>
             `).join('');
+        }
+
+        function normalizeGitStatus(d) {
+            if (!d) return '';
+            if (typeof d === 'string') return d;
+            if (Array.isArray(d)) return d.join('\n');
+            if (d.git_status && typeof d.git_status === 'string') return d.git_status;
+            if (d.git && typeof d.git.status === 'string') return d.git.status;
+            if (d.git && Array.isArray(d.git.status)) return d.git.status.join('\n');
+            return '';
+        }
+        function renderGitStatus(data) {
+            const el = document.getElementById('gitstatus');
+            if (!el) return;
+            const text = normalizeGitStatus(data);
+            if (!text) {
+                el.innerHTML = '<pre style="margin:0">No git status available.</pre><div class="more-indicator">More…</div>';
+            } else {
+                el.innerHTML = '<pre style="margin:0"></pre><div class="more-indicator">More…</div>';
+                el.querySelector('pre').textContent = text;
+            }
+            // overflow indicator
+            requestAnimationFrame(() => {
+                if (el.scrollHeight > el.clientHeight + 2) el.classList.add('has-overflow'); else el.classList.remove('has-overflow');
+            });
         }
         
         function renderMetadata(data) {
