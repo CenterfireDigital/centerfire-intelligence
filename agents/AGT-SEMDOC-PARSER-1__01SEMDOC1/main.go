@@ -75,6 +75,12 @@ func (p *SemDocParser) Start() {
 	log.Println("STAGE 1: Traditional development mode")
 	log.Println("Redis channel: agent.semdoc-parser.request")
 
+	// Register with AGT-MANAGER-1
+	p.registerWithManager(ctx)
+	
+	// Start heartbeat
+	go p.startHeartbeat(ctx)
+
 	// Subscribe to parser requests
 	pubsub := p.redisClient.Subscribe(ctx, "agent.semdoc-parser.request")
 	defer pubsub.Close()
@@ -358,6 +364,66 @@ func (p *SemDocParser) extractArray(line, prefix string) []string {
 	}
 	
 	return result
+}
+
+// registerWithManager registers this agent with AGT-MANAGER-1
+func (p *SemDocParser) registerWithManager(ctx context.Context) {
+	sessionData := map[string]interface{}{
+		"pid":          fmt.Sprintf("%d", os.Getpid()),
+		"agent_type":   "persistent",
+		"capabilities": []string{"semdoc_parsing", "contract_extraction", "file_analysis"},
+		"channels":     []string{"agent.semdoc-parser.request"},
+		"language":     "go",
+		"stage":        "1",
+	}
+
+	registrationData := map[string]interface{}{
+		"request_type":  "register_running",
+		"agent_name":    p.agentID,
+		"session_data":  sessionData,
+	}
+
+	registrationBytes, err := json.Marshal(registrationData)
+	if err != nil {
+		log.Printf("Failed to marshal registration data: %v", err)
+		return
+	}
+
+	err = p.redisClient.Publish(ctx, "centerfire:agent:manager", string(registrationBytes)).Err()
+	if err != nil {
+		log.Printf("Failed to register with manager: %v", err)
+	} else {
+		log.Printf("Registered with AGT-MANAGER-1 (PID: %d)", os.Getpid())
+	}
+}
+
+// startHeartbeat sends periodic heartbeats to AGT-MANAGER-1
+func (p *SemDocParser) startHeartbeat(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			heartbeatData := map[string]interface{}{
+				"request_type": "heartbeat",
+				"agent_name":   p.agentID,
+			}
+
+			heartbeatBytes, err := json.Marshal(heartbeatData)
+			if err != nil {
+				log.Printf("Failed to marshal heartbeat data: %v", err)
+				continue
+			}
+
+			err = p.redisClient.Publish(ctx, "centerfire:agent:manager", string(heartbeatBytes)).Err()
+			if err != nil {
+				log.Printf("Failed to send heartbeat: %v", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func main() {
