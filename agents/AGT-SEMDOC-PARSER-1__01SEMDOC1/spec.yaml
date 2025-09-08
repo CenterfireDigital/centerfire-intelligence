@@ -1,0 +1,36 @@
+name: "AGT-SEMDOC-PARSER-1"
+type: "persistent"
+stage: 1
+description: "SemDoc parser for @semblock comment extraction (Stage 1)"
+purpose: "Parse @semblock comments from source files and extract behavioral contracts"
+
+channels:
+  request: "agent.semdoc-parser.request"
+  response: "agent.semdoc-parser.response"
+
+actions:
+  - name: "parse_file"
+    description: "Parse @semblock comments from a single file"
+    parameters:
+      file_path: "string - path to source file"
+    
+  - name: "parse_directory" 
+    description: "Recursively parse all source files in directory"
+    parameters:
+      directory: "string - path to directory"
+      
+  - name: "list_contracts"
+    description: "List all stored contracts"
+    parameters: {}
+
+storage:
+  contracts: "centerfire:semdoc:contract:{contract_id}"
+  index: "centerfire:semdoc:contracts:index"
+  stream: "centerfire:semdoc:contracts"
+
+stage_1_features:
+  - "Extract @semblock comments from source files"
+  - "Parse contract_id, semantic_path, function name"
+  - "Parse preconditions, postconditions, invariants, effects"
+  - "Store contracts in Redis for Stage 2 processing"
+  - "No enforcement - pure extraction only"
