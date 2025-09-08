@@ -493,30 +493,21 @@ func (h *HTTPGatewayAgent) getBasicAgentStatus() []map[string]interface{} {
 
 // checkAgentRunning checks if a specific agent is running
 func (h *HTTPGatewayAgent) checkAgentRunning(agentName string) (bool, string) {
-	// Check process list for agent patterns
-	processPatterns := map[string][]string{
-		"AGT-NAMING-1":         {"agt-naming-1", "AGT-NAMING-1"},
-		"AGT-CONTEXT-1":        {"agt-context-1", "AGT-CONTEXT-1"},
-		"AGT-MANAGER-1":        {"agt-manager-1", "AGT-MANAGER-1"},
-		"AGT-SYSTEM-COMMANDER-1": {"agt-system-commander-1", "AGT-SYSTEM-COMMANDER-1"},
-		"AGT-CLAUDE-CAPTURE-1": {"agt-claude-capture-1", "AGT-CLAUDE-CAPTURE-1"},
-		"AGT-STACK-1":          {"agt-stack-1", "AGT-STACK-1"},
-		"AGT-HTTP-GATEWAY-1":   {"./gateway", "gateway", "AGT-HTTP-GATEWAY-1"},
-		"AGT-SEMDOC-PARSER-1":  {"SEMDOC-PARSER", "AGT-SEMDOC-PARSER-1"},
+	// Working process detection patterns based on actual running processes
+	var cmd string
+	switch agentName {
+	case "AGT-HTTP-GATEWAY-1":
+		cmd = "pgrep -f './gateway' | head -1"
+	case "AGT-SEMDOC-PARSER-1":
+		cmd = "ps aux | grep 'AGT-SEMDOC-PARSER-1' | grep -v grep | awk '{print $2}' | head -1"
+	default:
+		// Try generic pattern for other agents
+		cmd = fmt.Sprintf("ps aux | grep '%s' | grep -v grep | awk '{print $2}' | head -1", agentName)
 	}
 	
-	patterns := processPatterns[agentName]
-	if len(patterns) == 0 {
-		return false, "Unknown agent"
-	}
-	
-	// Check if any matching processes are running
-	for _, pattern := range patterns {
-		cmd := fmt.Sprintf("pgrep -f '%s' | head -1", pattern)
-		out, err := exec.Command("sh", "-c", cmd).Output()
-		if err == nil && len(strings.TrimSpace(string(out))) > 0 {
-			return true, "Running"
-		}
+	out, err := exec.Command("sh", "-c", cmd).Output()
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true, "Running"
 	}
 	
 	return false, "Not running"

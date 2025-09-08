@@ -291,8 +291,8 @@
         
         function renderHealthData(data) {
             renderSummary(data.summary);
-            renderContainers(data.containers);
             renderAgents(data.agents);
+            renderContainers(data.containers);
             renderRedis(data.redis);
             renderEndpoints(data.endpoints);
             renderMetadata(data);
@@ -303,22 +303,22 @@
             summaryEl.innerHTML = `
                 <div class="summary-card">
                     <h3>Containers</h3>
-                    <div class="value">${summary.containersRunning}/${summary.containersExpected}</div>
+                    <div class="value">${summary.containers_running || 0}/${summary.containers_expected || 0}</div>
                     <div>Running</div>
                 </div>
                 <div class="summary-card">
                     <h3>Agents</h3>
-                    <div class="value">${summary.agentsRunning}/${summary.agentsExpected}</div>
+                    <div class="value">${summary.agents_running || 0}/${summary.agents_expected || 0}</div>
                     <div>Running</div>
                 </div>
                 <div class="summary-card">
                     <h3>Redis</h3>
-                    <div class="value">${summary.redisConnected ? '✅' : '❌'}</div>
+                    <div class="value">${summary.redis_connected ? '✅' : '❌'}</div>
                     <div>Connected</div>
                 </div>
                 <div class="summary-card">
                     <h3>Endpoints</h3>
-                    <div class="value">${summary.endpointsAccessible}/3</div>
+                    <div class="value">${summary.endpoints_accessible || 0}/3</div>
                     <div>Accessible</div>
                 </div>
             `;
@@ -341,16 +341,33 @@
         
         function renderAgents(agents) {
             const agentsEl = document.getElementById('agents');
-            agentsEl.innerHTML = agents.map(agent => `
-                <div class="status-item ${agent.running ? 'running' : 'stopped'}">
-                    <div>
-                        <strong>${agent.name}</strong>
+            agentsEl.innerHTML = agents.map(agent => {
+                const registry = agent.registry_vs_process || {};
+                const statusClass = agent.status_class || (agent.running ? 'running' : 'stopped');
+                
+                return `
+                    <div class="status-item ${statusClass}">
+                        <div>
+                            <strong>${agent.name}</strong>
+                            <div style="font-size: 0.85em; margin-top: 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <div style="color: #aaa;">
+                                    Manager: ${registry.manager_running ? '✅' : '❌'}
+                                </div>
+                                <div style="color: #aaa;">
+                                    Process: ${registry.process_running ? '✅' : '❌'}
+                                </div>
+                            </div>
+                            ${agent.capabilities && agent.capabilities.length > 0 ? 
+                                `<div style="font-size: 0.8em; color: #667eea; margin-top: 4px;">
+                                    ${agent.capabilities.slice(0, 2).join(', ')}${agent.capabilities.length > 2 ? '...' : ''}
+                                </div>` : ''}
+                        </div>
+                        <span class="status-badge ${statusClass}">
+                            ${agent.status || (agent.running ? 'Running' : 'Not Running')}
+                        </span>
                     </div>
-                    <span class="status-badge ${agent.running ? 'running' : 'stopped'}">
-                        ${agent.running ? '✅ Running' : '❌ Not Running'}
-                    </span>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
         
         function renderRedis(redis) {
@@ -360,7 +377,7 @@
                 redisEl.innerHTML = `
                     <div class="error">
                         <strong>❌ Redis Connection Failed</strong><br>
-                        ${redis.error}
+                        ${redis.error || 'Connection error'}
                     </div>
                 `;
                 return;

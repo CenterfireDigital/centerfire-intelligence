@@ -100,7 +100,8 @@
       "Bash(\"Session management cleanup - Remove orphaned background bash sessions - Priority: Medium - Added: 2025-09-07\" )",
       "Bash(\"Container health monitoring - Automated alerts for service failures - Priority: Medium - Added: 2025-09-07\")",
       "Bash(npm install)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(pgrep:*)"
     ],
     "deny": [],
     "ask": []
