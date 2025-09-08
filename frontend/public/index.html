@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Centerfire Intelligence - Health Monitor</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
     <style>
         * {
             margin: 0;
@@ -19,9 +20,11 @@
         }
         
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(180deg, #0f1115 0%, #171a21 100%);
             padding: 2rem;
             text-align: center;
+            border-bottom: 1px solid rgba(102, 126, 234, 0.35);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.45);
         }
         
         .header h1 {
@@ -41,12 +44,133 @@
         }
         
         .controls {
-            text-align: center;
+            display: flex;
+            justify-content: center;
             margin-bottom: 2rem;
         }
+        /* Refresh box */
+        .refresh-box {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: #2a2a2a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        }
+        .refresh-box .group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .refresh-box .sep {
+            width: 1px;
+            align-self: stretch;
+            background: rgba(255,255,255,0.1);
+        }
+        .refresh-box .label {
+            color: #bbb;
+            font-size: 0.95rem;
+        }
+        .refresh-box .value {
+            color: #fff;
+            font-weight: 600;
+        }
+        /* Toggle switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 26px;
+        }
+        .switch input { display:none; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #444;
+            transition: .2s;
+            border-radius: 26px;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px; width: 20px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: .2s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #3b82f6;
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+        /* Interval range */
+        .interval-range { width: 160px; }
+        .interval-range input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            height: 6px;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #3b82f6, #0ea5e9);
+            outline: none;
+        }
+        .interval-range input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+        .interval-range input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px; border: none; border-radius: 50%; background: #fff; cursor: pointer;
+        }
+        /* Updating spinner */
+        .spinner {
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.25);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+        .spinner.show { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Pulse effect for segment changes */
+        .pulse { animation: pulse 600ms ease; }
+        @keyframes pulse { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
+        /* Modal prompt */
+        .modal-backdrop {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            display: none; align-items: center; justify-content: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: #1d1f25;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            width: 380px;
+            color: #eee;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+        }
+        .modal h4 { margin-bottom: 0.25rem; }
+        .modal p { color: #bbb; font-size: 0.95rem; margin-bottom: 0.75rem; }
+        .modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; }
+        .modal .actions .ghost {
+            background: transparent; border: 1px solid rgba(255,255,255,0.15);
+            color: #ddd;
+        }
+        .modal .countdown { color: #999; margin-right: auto; font-size: 0.85rem; }
         
         button {
-            background: #667eea;
+            background: #3b82f6;
             color: white;
             border: none;
             padding: 0.8rem 2rem;
@@ -58,7 +182,7 @@
         }
         
         button:hover {
-            background: #5a6fd8;
+            background: #2563eb;
         }
         
         .loading {
@@ -75,37 +199,95 @@
         }
         
         .summary-card {
-            background: #2a2a2a;
-            padding: 1.5rem;
-            border-radius: 8px;
+            background: #222831;
+            padding: 1.25rem 1.5rem;
+            border-radius: 12px;
             text-align: center;
-            border-left: 4px solid #667eea;
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
         .summary-card h3 {
             margin-bottom: 0.5rem;
-            color: #667eea;
+            color: #e5e7eb;
+            letter-spacing: 0.2px;
         }
         
         .summary-card .value {
             font-size: 2rem;
             font-weight: bold;
             margin-bottom: 0.5rem;
+            transition: color 0.2s ease, transform 0.2s ease;
+        }
+
+        /* Segmented pill for status mix */
+        .segmented-pill {
+            display: flex;
+            border-radius: 9999px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+        }
+        .segmented-pill .segment {
+            flex: 1;
+            text-align: center;
+            padding: 0.35rem 0.5rem;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .segmented-pill .segment + .segment {
+            border-left: 1px solid rgba(255,255,255,0.12);
+        }
+        .segmented-pill .segment.running {
+            background: #10B981;
+        }
+        .segmented-pill .segment.warning {
+            background: #F59E0B;
+        }
+        .segmented-pill .segment.stopped {
+            background: #EF4444;
+        }
+        .legend {
+            margin-top: 0.35rem;
+            color: #aaa;
+            font-size: 0.8rem;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .legend .running .dot { background: #10B981; }
+        .legend .warning .dot { background: #F59E0B; }
+        .legend .stopped .dot { background: #EF4444; }
+        /* Change flash */
+        .flash-change { animation: flash 800ms ease; }
+        @keyframes flash { 0% { box-shadow: inset 0 0 0 9999px rgba(255,255,255,0.0);} 30% { box-shadow: inset 0 0 0 9999px rgba(255,255,255,0.12);} 100% { box-shadow: inset 0 0 0 9999px rgba(255,255,255,0);} }
+        /* Slight hover for cards to add depth in dark theme */
+        .summary-card:hover {
+            box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+            transform: translateY(-1px);
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
         }
         
         .section {
-            background: #2a2a2a;
+            background: #222831;
             margin-bottom: 2rem;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.06);
         }
         
         .section-header {
-            background: #333;
+            background: #2a2f3a;
             padding: 1rem;
             font-size: 1.3rem;
             font-weight: bold;
-            border-bottom: 2px solid #667eea;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
         }
         
         .section-content {
@@ -122,9 +304,10 @@
             justify-content: space-between;
             align-items: center;
             padding: 0.75rem;
-            background: #333;
-            border-radius: 5px;
+            background: #2a2f3a;
+            border-radius: 10px;
             border-left: 4px solid transparent;
+            border: 1px solid rgba(255,255,255,0.06);
         }
         
         .status-item.running {
@@ -196,7 +379,7 @@
         .stream-name {
             font-weight: bold;
             margin-bottom: 0.5rem;
-            color: #667eea;
+            color: #60a5fa;
         }
         
         .stream-length {
@@ -207,31 +390,61 @@
 </head>
 <body>
     <div class="header">
-        <h1>🏥 Centerfire Intelligence</h1>
+        <img src="assets/images/centerfireweblogo.jpg" alt="Centerfire Intelligence" style="height: 60px; margin-bottom: 10px; border-radius: 8px;">
+        <h1>Centerfire Intelligence</h1>
         <p>Health Monitor Dashboard</p>
     </div>
     
     <div class="container">
         <div class="controls">
-            <button onclick="loadHealthData()">🔄 Refresh Status</button>
-            <button onclick="toggleAutoRefresh()">⏱️ Auto Refresh: <span id="autoStatus">Off</span></button>
+            <div class="refresh-box">
+                <div class="group">
+                    <span class="label">Auto Refresh</span>
+                    <label class="switch">
+                        <input id="autoToggle" type="checkbox" />
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="sep"></div>
+                <div class="group interval-range">
+                    <span class="label">Interval</span>
+                    <input id="intervalRange" type="range" min="2" max="60" step="1" value="30" />
+                    <span class="value" id="intervalLabel">30s</span>
+                </div>
+                <div class="sep"></div>
+                <div class="group">
+                    <button id="refreshNow">🔄 Refresh Now</button>
+                    <div class="spinner" id="refreshSpinner"></div>
+                </div>
+                <div class="sep"></div>
+                <div class="group">
+                    <span class="label">Last updated</span>
+                    <span class="value" id="lastUpdated">—</span>
+                </div>
+            </div>
         </div>
-        
+
         <div id="loading" class="loading" style="display: none;">
             🔄 Checking system health...
+        </div>
+
+        <!-- Cooldown modal -->
+        <div class="modal-backdrop" id="cooldownModal">
+            <div class="modal">
+                <h4>Auto-refresh cooldown</h4>
+                <p id="cooldownText">Auto-refresh is currently fast. Switch back to 30s?</p>
+                <div class="actions">
+                    <span class="countdown" id="cooldownCountdown">30s</span>
+                    <button class="ghost" id="cooldownKeep">Keep current</button>
+                    <button id="cooldownSwitch">Switch to 30s</button>
+                </div>
+            </div>
         </div>
         
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="content" style="display: none;">
             <div class="summary" id="summary"></div>
-            
-            <div class="section">
-                <div class="section-header">🐳 Docker Containers</div>
-                <div class="section-content">
-                    <div class="status-grid" id="containers"></div>
-                </div>
-            </div>
             
             <div class="section">
                 <div class="section-header">🤖 Agent Processes</div>
@@ -241,8 +454,10 @@
             </div>
             
             <div class="section">
-                <div class="section-header">🔴 Redis Health</div>
-                <div class="section-content" id="redis"></div>
+                <div class="section-header">🐳 Docker Containers</div>
+                <div class="section-content">
+                    <div class="status-grid" id="containers"></div>
+                </div>
             </div>
             
             <div class="section">
@@ -251,22 +466,38 @@
                     <div class="status-grid" id="endpoints"></div>
                 </div>
             </div>
+            
+            <div class="section">
+                <div class="section-header">🔴 Redis Health</div>
+                <div class="section-content" id="redis"></div>
+            </div>
         </div>
         
         <div class="metadata" id="metadata"></div>
     </div>
 
     <script>
-        let autoRefreshInterval = null;
+        let autoRefreshTimer = null;
+        let autoRefreshEnabled = false;
+        let autoRefreshIntervalMs = 10000; // default 10s
+        let isInitialLoad = true;
+        let prevData = null;
+        let decayTimer = null;
+        let decayPromptTimer = null;
         
         async function loadHealthData() {
             const loading = document.getElementById('loading');
             const error = document.getElementById('error');
             const content = document.getElementById('content');
             
-            loading.style.display = 'block';
-            error.style.display = 'none';
-            content.style.display = 'none';
+            const spinner = document.getElementById('refreshSpinner');
+            const showOverlay = isInitialLoad;
+                if (showOverlay) {
+                    loading.style.display = 'block';
+                    content.style.display = 'none';
+                }
+                error.style.display = 'none';
+                spinner.classList.add('show');
             
             try {
                 // Call HTTP Gateway's system health endpoint
@@ -278,48 +509,98 @@
                 const gatewayResponse = await response.json();
                 const data = gatewayResponse.data; // Extract data from gateway response
                 renderHealthData(data);
+                prevData = data;
+                // Update last updated time in the refresh box (use server timestamp if present)
+                try {
+                    const ts = (data && data.timestamp) ? new Date(data.timestamp) : new Date();
+                    const el = document.getElementById('lastUpdated');
+                    if (el) el.textContent = ts.toLocaleTimeString();
+                } catch (_) {}
                 
-                loading.style.display = 'none';
-                content.style.display = 'block';
+                if (showOverlay) {
+                    loading.style.display = 'none';
+                    content.style.display = 'block';
+                    isInitialLoad = false;
+                }
                 
             } catch (err) {
-                loading.style.display = 'none';
+                if (showOverlay) loading.style.display = 'none';
                 error.style.display = 'block';
                 error.innerHTML = `<strong>❌ Health check failed:</strong><br>${err.message}`;
+            }
+            finally {
+                spinner.classList.remove('show');
             }
         }
         
         function renderHealthData(data) {
-            renderSummary(data.summary);
+            // Precompute agent status counts for summary pill
+            const agentCounts = (data.agents || []).reduce((acc, agent) => {
+                const cls = agent.status_class || (agent.running ? 'running' : 'stopped');
+                if (cls === 'warning') acc.warning++;
+                else if (cls === 'stopped') acc.stopped++;
+                else acc.running++;
+                return acc;
+            }, { running: 0, warning: 0, stopped: 0 });
+            const totalAgents = agentCounts.running + agentCounts.warning + agentCounts.stopped;
+            const containerCounts = (data.containers || []).reduce((acc, c) => {
+                if (c.running) acc.running++; else acc.stopped++;
+                return acc;
+            }, { running: 0, stopped: 0 });
+            const endpointCounts = (data.endpoints || []).reduce((acc, e) => {
+                if (e.accessible) acc.accessible++; else acc.failed++;
+                return acc;
+            }, { accessible: 0, failed: 0 });
+            
+            renderSummary(data.summary, agentCounts, totalAgents, containerCounts, endpointCounts);
             renderAgents(data.agents);
             renderContainers(data.containers);
             renderRedis(data.redis);
             renderEndpoints(data.endpoints);
             renderMetadata(data);
+
+            // Animate counts using previous data snapshot
+            if (prevData) {
+                animateSummaryCounts(prevData, data);
+            }
         }
         
-        function renderSummary(summary) {
+        function renderSummary(summary, agentCounts, totalAgents, containerCounts, endpointCounts) {
             const summaryEl = document.getElementById('summary');
             summaryEl.innerHTML = `
-                <div class="summary-card">
-                    <h3>Containers</h3>
-                    <div class="value">${summary.containers_running || 0}/${summary.containers_expected || 0}</div>
-                    <div>Running</div>
-                </div>
-                <div class="summary-card">
+                <div class=\"summary-card\">
                     <h3>Agents</h3>
-                    <div class="value">${summary.agents_running || 0}/${summary.agents_expected || 0}</div>
-                    <div>Running</div>
+                    <div class=\"segmented-pill\" aria-label=\"Agents by status\">
+                        <div class=\"segment running\" title=\"Running: ${(totalAgents? Math.round(agentCounts.running/totalAgents*100):0)}%\"><span>✅</span><span class=\"js-count\" data-key=\"agents.running\">${agentCounts.running || 0}</span></div>
+                        <div class=\"segment warning\" title=\"Degraded: ${(totalAgents? Math.round(agentCounts.warning/totalAgents*100):0)}%\"><span>⚠️</span><span class=\"js-count\" data-key=\"agents.warning\">${agentCounts.warning || 0}</span></div>
+                        <div class=\"segment stopped\" title=\"Stopped: ${(totalAgents? Math.round(agentCounts.stopped/totalAgents*100):0)}%\"><span>⛔️</span><span class=\"js-count\" data-key=\"agents.stopped\">${agentCounts.stopped || 0}</span></div>
+                    </div>
+                    <div class=\"legend\">
+                        <span class=\"running\"><span class=\"dot\"></span>Running</span>
+                        <span class=\"warning\"><span class=\"dot\"></span>Degraded</span>
+                        <span class=\"stopped\"><span class=\"dot\"></span>Stopped</span>
+                    </div>
                 </div>
-                <div class="summary-card">
+                <div class=\"summary-card\">
+                    <h3>Containers</h3>
+                    <div class=\"segmented-pill\" aria-label=\"Containers by status\">
+                        <div class=\"segment running\" title=\"Running\"><span>✅</span><span class=\"js-count\" data-key=\"containers.running\">${containerCounts.running}</span></div>
+                        <div class=\"segment stopped\" title=\"Stopped\"><span>⛔️</span><span class=\"js-count\" data-key=\"containers.stopped\">${containerCounts.stopped}</span></div>
+                    </div>
+                    <div style=\"margin-top: 0.5rem; font-size: 0.85rem; color: #aaa;\">Status mix</div>
+                </div>
+                <div class=\"summary-card\">
                     <h3>Redis</h3>
                     <div class="value">${summary.redis_connected ? '✅' : '❌'}</div>
                     <div>Connected</div>
                 </div>
-                <div class="summary-card">
+                <div class=\"summary-card\">
                     <h3>Endpoints</h3>
-                    <div class="value">${summary.endpoints_accessible || 0}/3</div>
-                    <div>Accessible</div>
+                    <div class="segmented-pill" aria-label="Endpoints by status">
+                        <div class="segment running" title="Accessible"><span>✅</span><span class="js-count" data-key="endpoints.accessible">${endpointCounts.accessible}</span></div>
+                        <div class="segment stopped" title="Failed"><span>⛔️</span><span class="js-count" data-key="endpoints.failed">${endpointCounts.failed}</span></div>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #aaa;">Status mix</div>
                 </div>
             `;
         }
@@ -340,8 +621,16 @@
         }
         
         function renderAgents(agents) {
+            // Sort agents by status: running (green) first, then warning (orange), then stopped (red)
+            const statusOrder = { 'running': 1, 'warning': 2, 'stopped': 3 };
+            const sortedAgents = agents.sort((a, b) => {
+                const statusA = a.status_class || (a.running ? 'running' : 'stopped');
+                const statusB = b.status_class || (b.running ? 'running' : 'stopped');
+                return statusOrder[statusA] - statusOrder[statusB];
+            });
+            
             const agentsEl = document.getElementById('agents');
-            agentsEl.innerHTML = agents.map(agent => {
+            agentsEl.innerHTML = sortedAgents.map(agent => {
                 const registry = agent.registry_vs_process || {};
                 const statusClass = agent.status_class || (agent.running ? 'running' : 'stopped');
                 
@@ -423,19 +712,183 @@
             `;
         }
         
-        function toggleAutoRefresh() {
-            const statusEl = document.getElementById('autoStatus');
-            
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
-                statusEl.textContent = 'Off';
-            } else {
-                autoRefreshInterval = setInterval(loadHealthData, 10000); // 10 seconds
-                statusEl.textContent = 'On (10s)';
+        function startAutoRefresh() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = setInterval(loadHealthData, autoRefreshIntervalMs);
+            scheduleDecayIfNeeded();
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+            clearDecayTimer();
+        }
+
+        function animateNumber(el, from, to, duration = 400) {
+            if (from === to) return; // nothing to animate
+            const start = performance.now();
+            const step = (now) => {
+                const t = Math.min(1, (now - start) / duration);
+                const val = Math.round(from + (to - from) * t);
+                el.textContent = String(val);
+                if (t < 1) requestAnimationFrame(step);
+                else el.classList.add('flash-change');
+            };
+            requestAnimationFrame(step);
+            setTimeout(() => el.classList.remove('flash-change'), duration + 800);
+        }
+
+        function animateSummaryCounts(prev, curr) {
+            // Build previous and current maps
+            const prevMap = {
+                'agents.running': (prev.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'running').length,
+                'agents.warning': (prev.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'warning').length,
+                'agents.stopped': (prev.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'stopped').length,
+                'containers.running': (prev.containers||[]).filter(c => c.running).length,
+                'containers.stopped': (prev.containers||[]).filter(c => !c.running).length,
+                'containers.expected': (prev.summary && prev.summary.containers_expected != null) ? prev.summary.containers_expected : ((prev.containers||[]).length),
+                'endpoints.accessible': (prev.summary && prev.summary.endpoints_accessible != null) ? prev.summary.endpoints_accessible : (prev.endpoints||[]).filter(e=>e.accessible).length,
+                'endpoints.failed': (prev.endpoints||[]).filter(e => !e.accessible).length,
+            };
+            const currMap = {
+                'agents.running': (curr.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'running').length,
+                'agents.warning': (curr.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'warning').length,
+                'agents.stopped': (curr.agents||[]).filter(a => (a.status_class || (a.running ? 'running':'stopped')) === 'stopped').length,
+                'containers.running': (curr.containers||[]).filter(c => c.running).length,
+                'containers.stopped': (curr.containers||[]).filter(c => !c.running).length,
+                'containers.expected': (curr.summary && curr.summary.containers_expected != null) ? curr.summary.containers_expected : ((curr.containers||[]).length),
+                'endpoints.accessible': (curr.summary && curr.summary.endpoints_accessible != null) ? curr.summary.endpoints_accessible : (curr.endpoints||[]).filter(e=>e.accessible).length,
+                'endpoints.failed': (curr.endpoints||[]).filter(e => !e.accessible).length,
+            };
+            document.querySelectorAll('.js-count').forEach(el => {
+                const key = el.getAttribute('data-key');
+                if (!key || !(key in currMap)) return;
+                const fromRaw = (prevMap[key] !== undefined && prevMap[key] !== null) ? prevMap[key] : parseInt(el.textContent || '0', 10);
+                const from = isNaN(fromRaw) ? 0 : fromRaw;
+                const to = (currMap[key] != null) ? currMap[key] : 0;
+                if (from !== to) {
+                    animateNumber(el, from, to);
+                    const seg = el.closest('.segment');
+                    if (seg) {
+                        seg.classList.remove('pulse');
+                        // force reflow to restart animation
+                        void seg.offsetWidth;
+                        seg.classList.add('pulse');
+                    }
+                }
+                else el.textContent = String(to);
+            });
+        }
+
+        function clearDecayTimer() {
+            if (decayTimer) clearTimeout(decayTimer);
+            decayTimer = null;
+            if (decayPromptTimer) clearInterval(decayPromptTimer);
+            decayPromptTimer = null;
+        }
+
+        function scheduleDecayIfNeeded() {
+            clearDecayTimer();
+            var secs = Math.round(autoRefreshIntervalMs / 1000);
+            if (!autoRefreshEnabled) return;
+            if (secs <= 30) {
+                decayTimer = setTimeout(onDecayTimerFired, 600000); // 10 minutes
             }
         }
-        
+
+        function setIntervalSeconds(secs) {
+            var s = Math.min(60, Math.max(2, parseInt(secs, 10) || 30));
+            autoRefreshIntervalMs = s * 1000;
+            var range = document.getElementById('intervalRange');
+            var label = document.getElementById('intervalLabel');
+            if (range) range.value = String(s);
+            if (label) label.textContent = s + 's';
+            try { localStorage.setItem('refreshIntervalSec', String(s)); } catch (_) {}
+            if (autoRefreshEnabled) startAutoRefresh();
+        }
+
+        function showCooldownPrompt(currentSecs) {
+            var modal = document.getElementById('cooldownModal');
+            var text = document.getElementById('cooldownText');
+            var countdownEl = document.getElementById('cooldownCountdown');
+            var keepBtn = document.getElementById('cooldownKeep');
+            var switchBtn = document.getElementById('cooldownSwitch');
+            if (!modal) return setIntervalSeconds(30);
+            text.textContent = 'Auto-refresh is set to ' + currentSecs + 's. Switch back to 30s?';
+            modal.style.display = 'flex';
+            var remaining = 30;
+            countdownEl.textContent = remaining + 's';
+            if (decayPromptTimer) clearInterval(decayPromptTimer);
+            decayPromptTimer = setInterval(function(){
+                remaining -= 1;
+                countdownEl.textContent = remaining + 's';
+                if (remaining <= 0) {
+                    clearInterval(decayPromptTimer);
+                    decayPromptTimer = null;
+                    modal.style.display = 'none';
+                    setIntervalSeconds(30);
+                }
+            }, 1000);
+            var cleanup = function() {
+                modal.style.display = 'none';
+                if (decayPromptTimer) clearInterval(decayPromptTimer);
+                decayPromptTimer = null;
+            };
+            keepBtn.onclick = function(){ cleanup(); scheduleDecayIfNeeded(); };
+            switchBtn.onclick = function(){ cleanup(); setIntervalSeconds(30); };
+        }
+
+        function onDecayTimerFired() {
+            var secs = Math.round(autoRefreshIntervalMs / 1000);
+            if (!autoRefreshEnabled || secs > 30) return; // no longer applicable
+            var isHidden = document.hidden === true;
+            var isFocused = (typeof document.hasFocus === 'function') ? document.hasFocus() : true;
+            if (!isHidden && isFocused) {
+                showCooldownPrompt(secs);
+            } else {
+                setIntervalSeconds(30);
+            }
+        }
+
+        // Wire up refresh controls
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggle = document.getElementById('autoToggle');
+            const range = document.getElementById('intervalRange');
+            const label = document.getElementById('intervalLabel');
+            const btn = document.getElementById('refreshNow');
+
+            // Load persisted settings
+            try {
+                const savedEnabled = localStorage.getItem('refreshEnabled');
+                // Always start at 30s on load, overriding saved interval
+                range.value = '30';
+                autoRefreshIntervalMs = 30000;
+                try { localStorage.setItem('refreshIntervalSec', '30'); } catch (_) {}
+                if (savedEnabled === 'true') {
+                    toggle.checked = true;
+                    autoRefreshEnabled = true;
+                    startAutoRefresh();
+                }
+            } catch (_) {}
+
+            label.textContent = range.value + 's';
+            range.addEventListener('input', () => {
+                label.textContent = range.value + 's';
+            });
+            range.addEventListener('change', () => {
+                autoRefreshIntervalMs = parseInt(range.value, 10) * 1000;
+                if (autoRefreshEnabled) startAutoRefresh();
+                try { localStorage.setItem('refreshIntervalSec', String(parseInt(range.value, 10))); } catch (_) {}
+                scheduleDecayIfNeeded();
+            });
+            toggle.addEventListener('change', () => {
+                autoRefreshEnabled = toggle.checked;
+                if (autoRefreshEnabled) startAutoRefresh(); else stopAutoRefresh();
+                try { localStorage.setItem('refreshEnabled', autoRefreshEnabled ? 'true' : 'false'); } catch (_) {}
+            });
+            btn.addEventListener('click', () => loadHealthData());
+        });
+
         // Load initial data
         loadHealthData();
     </script>

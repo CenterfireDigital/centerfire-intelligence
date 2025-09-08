@@ -327,6 +327,7 @@ claude_instructions: |
   - Code → AGT-CODING-1 (created)
   - Documentation → AGT-SEMDOC-1 (created) 
   - Graph relationships → AGT-GRAPH-1 (not created)
+  - Project context/history → AGT-CONTEXT-1 (operational, use when needed)
   
   SYSTEM ARCHITECTURE:
   - Agent-oriented (not service-oriented) - everything flows through agents

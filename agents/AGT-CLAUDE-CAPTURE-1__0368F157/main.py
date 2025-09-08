@@ -57,6 +57,13 @@ class ClaudeCaptureAgent:
         self.conversation_buffer: List[str] = []
         self.session_id = None
         
+        # Lazy disk buffering for Redis failures
+        self.redis_healthy = True
+        self.disk_buffer_active = False
+        self.buffer_file_path = Path("./redis_failover_buffer.jsonl")
+        self.last_redis_check = 0
+        self.redis_check_interval = 30  # Check Redis health every 30 seconds
+        
         # Redis channels and streams
         self.request_channel = "agent.claude-capture.request"
         self.response_channel = "agent.claude-capture.response"
@@ -84,7 +91,6 @@ class ClaudeCaptureAgent:
         tasks = [
             self._listen_for_requests(),
             self._monitor_claude_processes(),
-            self._heartbeat_loop(),
             self._capture_current_session()
         ]
         
@@ -114,10 +120,7 @@ class ClaudeCaptureAgent:
     
     async def _register_with_manager(self):
         """Register with AGT-MANAGER-1"""
-        registration_data = {
-            "action": "register_running",
-            "agent_name": self.agent_id,
-            "session_id": f"{self.agent_id}_{int(time.time())}",
+        session_data = {
             "pid": os.getpid(),
             "agent_type": "persistent",
             "capabilities": ["session_capture", "conversation_streaming", "claude_monitoring"],
@@ -125,21 +128,51 @@ class ClaudeCaptureAgent:
             "language": "python"
         }
         
+        registration_data = {
+            "request_type": "register_running",
+            "agent_name": self.agent_id,
+            "session_data": session_data
+        }
+        
         try:
-            self.redis_client.publish("agent.manager.request", json.dumps(registration_data))
-            self.logger.info("📋 Registered with AGT-MANAGER-1")
+            self.redis_client.publish("centerfire:agent:manager", json.dumps(registration_data))
+            self.logger.info(f"📝 Registered with AGT-MANAGER-1 (PID: {os.getpid()})")
+            
+            # Start heartbeat
+            await self._start_heartbeat()
         except Exception as e:
             self.logger.error(f"❌ Failed to register with manager: {e}")
+    
+    async def _start_heartbeat(self):
+        """Start periodic heartbeat to AGT-MANAGER-1"""
+        async def heartbeat_loop():
+            while True:
+                try:
+                    await asyncio.sleep(30)  # Heartbeat every 30 seconds
+                    
+                    heartbeat_data = {
+                        "request_type": "heartbeat",
+                        "agent_name": self.agent_id
+                    }
+                    
+                    self.redis_client.publish("centerfire:agent:manager", json.dumps(heartbeat_data))
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ Heartbeat error: {e}")
+                    await asyncio.sleep(60)
+        
+        # Start heartbeat in the background
+        asyncio.create_task(heartbeat_loop())
     
     async def _unregister_with_manager(self):
         """Unregister from AGT-MANAGER-1"""
         unregister_data = {
-            "action": "unregister_running",
+            "request_type": "unregister_running",
             "agent_name": self.agent_id
         }
         
         try:
-            self.redis_client.publish("agent.manager.request", json.dumps(unregister_data))
+            self.redis_client.publish("centerfire:agent:manager", json.dumps(unregister_data))
             self.logger.info("📋 Unregistered from AGT-MANAGER-1")
         except Exception as e:
             self.logger.error(f"❌ Failed to unregister: {e}")
@@ -225,18 +258,33 @@ class ClaudeCaptureAgent:
             })
     
     async def _stream_conversation(self, conversation_data: Dict[str, Any]):
-        """Stream conversation data to Redis"""
-        try:
-            # Stream to the same channel that APOLLO uses
-            stream_data = {
-                "data": json.dumps(conversation_data)
-            }
-            
-            self.redis_client.xadd(self.conversation_stream, stream_data)
-            self.logger.info(f"💾 Streamed conversation to {self.conversation_stream}")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to stream conversation: {e}")
+        """Stream conversation data to Redis with lazy disk buffering failover"""
+        stream_data = {
+            "data": json.dumps(conversation_data)
+        }
+        
+        # Check Redis health periodically
+        await self._check_redis_health()
+        
+        if self.redis_healthy:
+            try:
+                # Normal path - direct to Redis
+                self.redis_client.xadd(self.conversation_stream, stream_data)
+                self.logger.info(f"💾 Streamed conversation to {self.conversation_stream}")
+                
+                # If we were in failover mode, try to replay buffer
+                if self.disk_buffer_active:
+                    await self._replay_disk_buffer()
+                
+            except Exception as e:
+                self.logger.warning(f"⚠️ Redis write failed, activating disk buffer: {e}")
+                self.redis_healthy = False
+                await self._activate_disk_buffer()
+                await self._write_to_disk(stream_data)
+        else:
+            # Failover path - disk buffer
+            self.logger.debug(f"📝 Writing to disk buffer (Redis unhealthy)")
+            await self._write_to_disk(stream_data)
     
     async def _stream_session_event(self, event_type: str, data: Optional[Dict] = None):
         """Stream session lifecycle events"""
@@ -276,25 +324,6 @@ class ClaudeCaptureAgent:
                 self.logger.error(f"❌ Error monitoring processes: {e}")
                 await asyncio.sleep(60)
     
-    async def _heartbeat_loop(self):
-        """Send periodic heartbeats"""
-        while True:
-            try:
-                heartbeat_data = {
-                    "action": "heartbeat",
-                    "agent_name": self.agent_id,
-                    "timestamp": int(time.time()),
-                    "status": "healthy",
-                    "active_sessions": len(self.active_sessions),
-                    "buffer_size": len(self.conversation_buffer)
-                }
-                
-                self.redis_client.publish("agent.manager.request", json.dumps(heartbeat_data))
-                await asyncio.sleep(30)  # Heartbeat every 30 seconds
-                
-            except Exception as e:
-                self.logger.error(f"❌ Heartbeat error: {e}")
-                await asyncio.sleep(60)
     
     async def _handle_capture_session(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle session capture request"""
@@ -339,6 +368,77 @@ class ClaudeCaptureAgent:
             "current_session": self.session_id,
             "uptime": time.time() - (hasattr(self, '_start_time') and self._start_time or time.time())
         }
+    
+    async def _check_redis_health(self):
+        """Check Redis health periodically"""
+        current_time = time.time()
+        if current_time - self.last_redis_check < self.redis_check_interval:
+            return
+            
+        self.last_redis_check = current_time
+        
+        try:
+            # Quick ping to test Redis
+            self.redis_client.ping()
+            if not self.redis_healthy:
+                self.logger.info("✅ Redis recovered - switching back from disk buffer")
+                self.redis_healthy = True
+                # Replay disk buffer will happen in next write
+                
+        except Exception as e:
+            if self.redis_healthy:
+                self.logger.warning(f"⚠️ Redis health check failed: {e}")
+                self.redis_healthy = False
+    
+    async def _activate_disk_buffer(self):
+        """Activate disk buffering mode"""
+        if not self.disk_buffer_active:
+            self.disk_buffer_active = True
+            self.logger.info(f"🆘 Activating disk buffer: {self.buffer_file_path}")
+    
+    async def _write_to_disk(self, stream_data: Dict[str, Any]):
+        """Write conversation data to disk buffer"""
+        try:
+            buffer_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "stream": self.conversation_stream,
+                "data": stream_data
+            }
+            
+            async with aiofiles.open(self.buffer_file_path, 'a') as f:
+                await f.write(json.dumps(buffer_entry) + '\n')
+                
+        except Exception as e:
+            self.logger.error(f"❌ Failed to write to disk buffer: {e}")
+    
+    async def _replay_disk_buffer(self):
+        """Replay buffered conversations to Redis when it recovers"""
+        if not self.buffer_file_path.exists():
+            return
+            
+        self.logger.info(f"🔄 Replaying disk buffer to Redis...")
+        
+        try:
+            replayed_count = 0
+            
+            async with aiofiles.open(self.buffer_file_path, 'r') as f:
+                async for line in f:
+                    if line.strip():
+                        buffer_entry = json.loads(line)
+                        stream_data = buffer_entry['data']
+                        
+                        # Replay to Redis
+                        self.redis_client.xadd(self.conversation_stream, stream_data)
+                        replayed_count += 1
+            
+            # Clear the buffer file after successful replay
+            self.buffer_file_path.unlink()
+            self.disk_buffer_active = False
+            
+            self.logger.info(f"✅ Replayed {replayed_count} buffered conversations to Redis")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to replay disk buffer: {e}")
 
 async def main():
     """Main entry point"""

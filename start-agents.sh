@@ -8,12 +8,24 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR/agents"
 
-# Core persistent agents (order matters for dependencies)
-CORE_AGENTS=(
+# Essential agents for Claude Code startup (order matters for dependencies)
+ESSENTIAL_AGENTS=(
     "AGT-MANAGER-1__manager1"
+    "AGT-HTTP-GATEWAY-1__01K4EAF1"
+    "AGT-CLAUDE-CAPTURE-1__0368F157"
+)
+
+# All available agents (for full startup)
+ALL_AGENTS=(
+    "AGT-MANAGER-1__manager1"
+    "AGT-HTTP-GATEWAY-1__01K4EAF1"
     "AGT-NAMING-1__01K4EAF1" 
     "AGT-STRUCT-1__01K4EAF1"
     "AGT-SEMANTIC-1__01K4EAF1"
+    "AGT-SYSTEM-COMMANDER-1__syscmd1"
+    "AGT-CONTEXT-1__17572052"
+    "AGT-STACK-1__stack1"
+    "AGT-CLAUDE-CAPTURE-1__0368F157"
 )
 
 # Colors for output
@@ -42,12 +54,15 @@ error() {
 # Function to check if an agent is already running
 check_agent_running() {
     local agent_name="$1"
-    # Check for running go processes with this agent's path
+    # Check for running Go processes with this agent's path
     if ps aux | grep -v grep | grep -q "go run.*$agent_name.*main.go"; then
         return 0  # Running
-    else
-        return 1  # Not running
     fi
+    # Check for running Python processes with this agent's path
+    if ps aux | grep -v grep | grep -q "python3.*$agent_name.*main.py"; then
+        return 0  # Running
+    fi
+    return 1  # Not running
 }
 
 # Function to start a single agent
@@ -67,17 +82,32 @@ start_agent() {
         return 1
     fi
     
-    if [[ ! -f "$AGENTS_DIR/$agent_dir/main.go" ]]; then
-        error "No main.go found in $AGENTS_DIR/$agent_dir"
+    # Determine if this is a Go or Python agent
+    local is_python_agent=false
+    if [[ -f "$AGENTS_DIR/$agent_dir/main.py" ]]; then
+        is_python_agent=true
+    elif [[ ! -f "$AGENTS_DIR/$agent_dir/main.go" ]]; then
+        error "No main.go or main.py found in $AGENTS_DIR/$agent_dir"
         return 1
     fi
     
     # Change to agent directory and start in background
     cd "$AGENTS_DIR/$agent_dir"
     
-    # Start agent with output redirection
-    log "Executing: go run main.go (background)"
-    nohup go run main.go > "/tmp/$agent_name.log" 2>&1 &
+    # Start agent with output redirection based on type and availability
+    if $is_python_agent; then
+        log "Executing: python3 main.py (background)"
+        nohup python3 main.py > "/tmp/$agent_name.log" 2>&1 &
+    elif [[ -f "gateway" ]]; then
+        log "Executing: ./gateway (background)"
+        nohup ./gateway > "/tmp/$agent_name.log" 2>&1 &
+    elif [[ -f "manager" ]]; then
+        log "Executing: ./manager (background)"
+        nohup ./manager > "/tmp/$agent_name.log" 2>&1 &
+    else
+        log "Executing: go run main.go (background)"
+        nohup go run main.go > "/tmp/$agent_name.log" 2>&1 &
+    fi
     local pid=$!
     
     # Give it a moment to start
@@ -100,7 +130,7 @@ start_agent() {
 stop_agents() {
     log "Stopping all agents..."
     
-    for agent_dir in "${CORE_AGENTS[@]}"; do
+    for agent_dir in "${ALL_AGENTS[@]}"; do
         local agent_name=$(basename "$agent_dir")
         local pid_file="/tmp/$agent_name.pid"
         
@@ -130,7 +160,7 @@ status_agents() {
     
     local all_running=true
     
-    for agent_dir in "${CORE_AGENTS[@]}"; do
+    for agent_dir in "${ALL_AGENTS[@]}"; do
         local agent_name=$(basename "$agent_dir")
         
         if check_agent_running "$agent_name"; then
@@ -191,13 +221,28 @@ case "${1:-start}" in
         log "🚀 Starting Centerfire Intelligence Agents"
         check_prerequisites
         
-        for agent_dir in "${CORE_AGENTS[@]}"; do
+        # Default to essential agents for Claude Code sessions
+        agents_to_start=("${ESSENTIAL_AGENTS[@]}")
+        
+        # If --all flag is provided, start all agents
+        if [[ "${2:-}" == "--all" ]]; then
+            agents_to_start=("${ALL_AGENTS[@]}")
+            log "Starting ALL agents (--all flag provided)"
+        else
+            log "Starting ESSENTIAL agents for Claude Code (use --all for complete startup)"
+        fi
+        
+        for agent_dir in "${agents_to_start[@]}"; do
             start_agent "$agent_dir"
             sleep 1  # Brief pause between starts
         done
         
         echo
-        success "🎉 All core agents startup initiated"
+        if [[ "${2:-}" == "--all" ]]; then
+            success "🎉 All agents startup initiated"
+        else
+            success "🎉 Essential agents startup initiated"
+        fi
         log "💡 Use './start-agents.sh status' to check agent health"
         log "💡 Use './start-agents.sh stop' to stop all agents"
         ;;

@@ -357,41 +357,21 @@ func (h *HTTPGatewayAgent) getDockerContainerStatus() []map[string]interface{} {
 
 func (h *HTTPGatewayAgent) getAgentProcessStatus() []map[string]interface{} {
 	// Get dual verification: Manager registry vs actual process detection
-	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
-	defer cancel()
 	
-	// Try to get agent registry from AGT-MANAGER-1
-	registryData, err := h.redisClient.HGetAll(ctx, "centerfire:agents:registry").Result()
+	// Try to get agent registry from AGT-MANAGER-1 HTTP API
+	agentMap := h.getManagerRegistry()
+	managerOnline := len(agentMap) > 0 || h.isManagerResponding()
 	
-	// Create agent map for comparison
-	agentMap := make(map[string]map[string]interface{})
-	
-	// Process Manager registry data
-	if err == nil && len(registryData) > 0 {
-		for agentID, agentDataStr := range registryData {
-			var agentData map[string]interface{}
-			if err := json.Unmarshal([]byte(agentDataStr), &agentData); err != nil {
-				continue
-			}
-			
-			// Extract capabilities
-			capabilities, _ := agentData["capabilities"].([]interface{})
-			capStrings := make([]string, len(capabilities))
-			for i, cap := range capabilities {
-				if capStr, ok := cap.(string); ok {
-					capStrings[i] = capStr
-				}
-			}
-			
-			agentMap[agentID] = map[string]interface{}{
-				"name":         agentID,
-				"type":         agentData["type"],
-				"capabilities": capStrings,
-				"integrations": agentData["integrations"],
-				"location":     agentData["location"],
-				"manager_status": agentData["status"],
-				"has_registry": true,
-			}
+	// Special case: If we can query the manager, then the manager is running!
+	if managerOnline {
+		agentMap["AGT-MANAGER-1"] = map[string]interface{}{
+			"name":           "AGT-MANAGER-1",
+			"type":           "persistent",
+			"capabilities":   []string{"agent_management", "service_discovery"},
+			"integrations":   []string{"Redis:6380", "HTTP:8380"},
+			"location":       "agents/AGT-MANAGER-1__manager1",
+			"manager_status": "online", // If we can query it, it's online!
+			"has_registry":   true,
 		}
 	}
 	
@@ -422,7 +402,7 @@ func (h *HTTPGatewayAgent) getAgentProcessStatus() []map[string]interface{} {
 		processRunning, processStatus := h.checkAgentRunning(agentID)
 		
 		// Determine overall status and any discrepancies
-		managerRunning := agentInfo["manager_status"] == "operational" || agentInfo["manager_status"] == "running"
+		managerRunning := agentInfo["manager_status"] == "operational" || agentInfo["manager_status"] == "running" || agentInfo["manager_status"] == "online"
 		var overallStatus string
 		var statusClass string
 		
@@ -497,9 +477,13 @@ func (h *HTTPGatewayAgent) checkAgentRunning(agentName string) (bool, string) {
 	var cmd string
 	switch agentName {
 	case "AGT-HTTP-GATEWAY-1":
-		cmd = "pgrep -f './gateway' | head -1"
+		cmd = "ps aux | grep './gateway' | grep -v grep | awk '{print $2}' | head -1"
 	case "AGT-SEMDOC-PARSER-1":
-		cmd = "ps aux | grep 'AGT-SEMDOC-PARSER-1' | grep -v grep | awk '{print $2}' | head -1"
+		cmd = "lsof -c go | grep AGT-SEMDOC-PARSER-1 | grep cwd | awk '{print $2}' | head -1"
+	case "AGT-MANAGER-1":
+		cmd = "lsof -c go | grep AGT-MANAGER-1 | grep cwd | awk '{print $2}' | head -1"
+	case "AGT-CLAUDE-CAPTURE-1":
+		cmd = "lsof -c Python | grep AGT-CLAUDE-CAPTURE-1 | grep cwd | awk '{print $2}' | head -1"
 	default:
 		// Try generic pattern for other agents
 		cmd = fmt.Sprintf("ps aux | grep '%s' | grep -v grep | awk '{print $2}' | head -1", agentName)
@@ -511,6 +495,68 @@ func (h *HTTPGatewayAgent) checkAgentRunning(agentName string) (bool, string) {
 	}
 	
 	return false, "Not running"
+}
+
+// getManagerRegistry queries AGT-MANAGER-1 HTTP service for registered agents
+func (h *HTTPGatewayAgent) getManagerRegistry() map[string]map[string]interface{} {
+	agentMap := make(map[string]map[string]interface{})
+	
+	// Query manager's HTTP service
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8380/api/services")
+	if err != nil {
+		fmt.Printf("Failed to query manager registry: %v\n", err)
+		return agentMap
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Manager registry returned status: %d\n", resp.StatusCode)
+		return agentMap
+	}
+	
+	var managerResponse struct {
+		Success  bool `json:"success"`
+		Services map[string]struct {
+			Name         string    `json:"name"`
+			Status       string    `json:"status"`
+			Type         string    `json:"type"`
+			PID          int       `json:"pid"`
+			LastHeartbeat time.Time `json:"last_heartbeat"`
+		} `json:"services"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&managerResponse); err != nil {
+		fmt.Printf("Failed to decode manager response: %v\n", err)
+		return agentMap
+	}
+	
+	if managerResponse.Success {
+		for _, service := range managerResponse.Services {
+			agentMap[service.Name] = map[string]interface{}{
+				"name":           service.Name,
+				"type":           service.Type,
+				"capabilities":   []string{}, // TODO: Get from actual service
+				"integrations":   []string{}, // TODO: Get from actual service
+				"location":       "unknown",  // TODO: Get from actual service
+				"manager_status": service.Status,
+				"has_registry":   true,
+			}
+		}
+	}
+	
+	return agentMap
+}
+
+// isManagerResponding checks if the manager is responding to HTTP requests
+func (h *HTTPGatewayAgent) isManagerResponding() bool {
+	client := &http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Get("http://localhost:8380/api/services")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (h *HTTPGatewayAgent) getRedisHealth() map[string]interface{} {

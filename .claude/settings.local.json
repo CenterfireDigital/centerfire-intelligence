@@ -101,7 +101,10 @@
       "Bash(\"Container health monitoring - Automated alerts for service failures - Priority: Medium - Added: 2025-09-07\")",
       "Bash(npm install)",
       "Bash(npm start)",
-      "Bash(pgrep:*)"
+      "Bash(pgrep:*)",
+      "Bash(./quick-start.sh:*)",
+      "Bash(tmux new-session:*)",
+      "Bash(tmux send-keys:*)"
     ],
     "deny": [],
     "ask": []
