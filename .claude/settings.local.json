@@ -94,7 +94,13 @@
       "Bash(docker-compose:*)",
       "Bash(docker stats:*)",
       "Bash(./clickhouse_consumer:*)",
-      "WebFetch(domain:casbin.org)"
+      "WebFetch(domain:casbin.org)",
+      "Bash(docker search:*)",
+      "Bash(\"AGT-SEMDOC-PARSER-1 implementation - Stage 1 traditional development - Priority: High - Added: 2025-09-07\" )",
+      "Bash(\"Session management cleanup - Remove orphaned background bash sessions - Priority: Medium - Added: 2025-09-07\" )",
+      "Bash(\"Container health monitoring - Automated alerts for service failures - Priority: Medium - Added: 2025-09-07\")",
+      "Bash(npm install)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []

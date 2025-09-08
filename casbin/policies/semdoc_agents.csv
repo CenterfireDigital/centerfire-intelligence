@@ -1,0 +1,33 @@
+# Casbin Policies for SemDoc Agent Authorization
+# Format: p, subject, object, action, domain
+
+# SemDoc Parser Agent Policies
+p, AGT-SEMDOC-PARSER-1, capability.semdoc.parse, execute, centerfire.dev
+p, AGT-SEMDOC-PARSER-1, capability.semdoc.extract, execute, centerfire.dev
+p, AGT-SEMDOC-PARSER-1, storage.redis, read_write, centerfire.dev
+p, AGT-SEMDOC-PARSER-1, storage.weaviate, read_write, centerfire.dev
+p, AGT-SEMDOC-PARSER-1, agent.naming.request, publish, centerfire.dev
+
+# SemDoc Registry Agent Policies  
+p, AGT-SEMDOC-REGISTRY-1, capability.semdoc.registry, execute, centerfire.dev
+p, AGT-SEMDOC-REGISTRY-1, capability.semdoc.lifecycle, manage, centerfire.dev
+p, AGT-SEMDOC-REGISTRY-1, storage.redis, read_write, centerfire.dev
+p, AGT-SEMDOC-REGISTRY-1, storage.weaviate, read_write, centerfire.dev
+p, AGT-SEMDOC-REGISTRY-1, storage.neo4j, read_write, centerfire.dev
+
+# SemDoc Validator Agent Policies
+p, AGT-SEMDOC-VALIDATOR-1, capability.semdoc.validate, execute, centerfire.dev
+p, AGT-SEMDOC-VALIDATOR-1, capability.semdoc.compliance, check, centerfire.dev
+p, AGT-SEMDOC-VALIDATOR-1, storage.redis, read, centerfire.dev
+p, AGT-SEMDOC-VALIDATOR-1, storage.weaviate, read, centerfire.dev
+
+# Existing Agent Policies (for reference)
+p, AGT-NAMING-1, capability.naming, execute, centerfire.dev
+p, AGT-CONTEXT-1, capability.context.retrieve, execute, centerfire.dev
+p, AGT-MANAGER-1, capability.agent.management, execute, centerfire.dev
+
+# Domain Restrictions - SemDoc agents cannot access other domains
+p, AGT-SEMDOC-PARSER-1, capability.user.*, deny, *
+p, AGT-SEMDOC-PARSER-1, capability.payment.*, deny, *
+p, AGT-SEMDOC-REGISTRY-1, capability.infrastructure.*, deny, *
+p, AGT-SEMDOC-VALIDATOR-1, capability.content.*, deny, *

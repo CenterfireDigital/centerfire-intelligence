@@ -110,12 +110,19 @@ func authenticateJWT(token string) (*User, error) {
 4. **Self-Healing Systems**: Contract violations trigger automatic recovery
 5. **Semantic Prison**: AI operates within inviolable contract boundaries
 
-## Next Implementation Steps
-1. **Create AGT-SEMDOC-PARSER**: Extract contracts from existing codebase
-2. **Implement @semblock Comments**: Add inline contracts to source files  
-3. **Populate Contract Storage**: Store behavioral specifications in Redis/Weaviate
-4. **Build Inheritance Chains**: Create semantic path hierarchies
-5. **Enable Contract Validation**: Runtime compliance checking
+## Staged Implementation Strategy
+**Problem**: SemDoc is self-describing (chicken/egg problem) - needs itself to exist before it can be built.
+
+**Solution**: Progressive enforcement stages:
+1. **Stage 1** (Weeks 1-4): Build SemDoc infrastructure traditionally + Casbin RBAC
+2. **Stage 2** (Weeks 5-8): Add @semblock syntax without enforcement  
+3. **Stage 3** (Weeks 9-12): Validate contracts but don't block execution
+4. **Stage 4** (Weeks 13-16): Full contract enforcement - bootstrap complete
+
+**Current Status**: Ready for Stage 1 - traditional development of SemDoc agents
+**Key Insight**: Build the contract system without contracts, then use it to enforce contracts
+
+**Detailed Plan**: `DIR-SYS-1__genesis/semdoc-staged-implementation.md`
 
 ## Context Retrieval for SemDoc Discussions
 
@@ -140,8 +147,12 @@ func authenticateJWT(token string) (*User, error) {
 - **Full Spec**: `/DOC-SPEC-1__semdoc/semdoc-iso-specification-v1.md`
 - **Agent Protocol**: `/DIR-SYS-1__genesis/claude-agent-protocol.yaml` 
 - **This Summary**: `/DIR-SYS-1__genesis/semdoc-context-summary.md`
+- **Staged Implementation**: `/DIR-SYS-1__genesis/semdoc-staged-implementation.md`
 - **Context Agent**: `/agents/AGT-CONTEXT-1__17572052/main.go`
 - **Casbin Plan**: `/docs/casbin-agent-authorization-plan.md`
+- **Chicken/Egg Analysis**: `/DOC-ANALYSIS-1__chicken-egg-problems.md`
+- **General Todo List**: `/GENERAL-TODO-LIST.md` (also in Redis: `centerfire:general:todos`)
+- **Current Operating Stack**: `/CURRENT-OPERATING-STACK.md`
 
 ---
 *This summary provides essential SemDoc context for session startup without overwhelming the context window. Use AGT-CONTEXT-1 to retrieve previous SemDoc discussions for deeper context.*

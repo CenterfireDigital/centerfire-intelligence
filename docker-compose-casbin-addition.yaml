@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Casbin Authorization Service Addition to Centerfire Intelligence Stack
+# This adds Casbin as an isolated authorization microservice for agent RBAC
+
+services:
+  centerfire-casbin:
+    image: casbin/casbin-server:latest
+    container_name: centerfire-casbin
+    hostname: centerfire-casbin
+    ports:
+      - "50051:50051"   # gRPC API for authorization requests
+    volumes:
+      - ./casbin/model.conf:/app/model.conf:ro
+      - ./casbin/policies:/app/policies:ro
+      - casbin_logs:/var/log/casbin
+    networks:
+      - mem0-network
+    restart: unless-stopped
+    # Note: Casbin server uses gRPC, not HTTP
+    # Bootstrap authorization service (always available for Stage 1)
+    profiles:
+      - casbin-auth
+      - dual-auth        # For Stage 2 migration testing
+      - default         # Always start with core services
+
+volumes:
+  casbin_logs:
+    driver: local
+
+networks:
+  mem0-network:
+    external: true

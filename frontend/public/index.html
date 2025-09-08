@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centerfire Intelligence - Health Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .controls {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin: 0 0.5rem;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #5a6fd8;
+        }
+        
+        .loading {
+            text-align: center;
+            font-size: 1.2rem;
+            margin: 2rem;
+        }
+        
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .summary-card {
+            background: #2a2a2a;
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+        
+        .summary-card h3 {
+            margin-bottom: 0.5rem;
+            color: #667eea;
+        }
+        
+        .summary-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .section {
+            background: #2a2a2a;
+            margin-bottom: 2rem;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .section-header {
+            background: #333;
+            padding: 1rem;
+            font-size: 1.3rem;
+            font-weight: bold;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .section-content {
+            padding: 1rem;
+        }
+        
+        .status-grid {
+            display: grid;
+            gap: 0.5rem;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: #333;
+            border-radius: 5px;
+            border-left: 4px solid transparent;
+        }
+        
+        .status-item.running {
+            border-left-color: #10B981;
+            background: rgba(16, 185, 129, 0.1);
+        }
+        
+        .status-item.stopped {
+            border-left-color: #EF4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .status-item.warning {
+            border-left-color: #F59E0B;
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        
+        .status-badge.running {
+            background: #10B981;
+            color: white;
+        }
+        
+        .status-badge.stopped {
+            background: #EF4444;
+            color: white;
+        }
+        
+        .status-badge.warning {
+            background: #F59E0B;
+            color: white;
+        }
+        
+        .metadata {
+            text-align: center;
+            margin-top: 2rem;
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+        
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #EF4444;
+            color: #EF4444;
+            padding: 1rem;
+            border-radius: 5px;
+            margin: 1rem 0;
+        }
+        
+        .redis-streams {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .stream-card {
+            background: #333;
+            padding: 1rem;
+            border-radius: 5px;
+        }
+        
+        .stream-name {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            color: #667eea;
+        }
+        
+        .stream-length {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏥 Centerfire Intelligence</h1>
+        <p>Health Monitor Dashboard</p>
+    </div>
+    
+    <div class="container">
+        <div class="controls">
+            <button onclick="loadHealthData()">🔄 Refresh Status</button>
+            <button onclick="toggleAutoRefresh()">⏱️ Auto Refresh: <span id="autoStatus">Off</span></button>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            🔄 Checking system health...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="content" style="display: none;">
+            <div class="summary" id="summary"></div>
+            
+            <div class="section">
+                <div class="section-header">🐳 Docker Containers</div>
+                <div class="section-content">
+                    <div class="status-grid" id="containers"></div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-header">🤖 Agent Processes</div>
+                <div class="section-content">
+                    <div class="status-grid" id="agents"></div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-header">🔴 Redis Health</div>
+                <div class="section-content" id="redis"></div>
+            </div>
+            
+            <div class="section">
+                <div class="section-header">🌐 Service Endpoints</div>
+                <div class="section-content">
+                    <div class="status-grid" id="endpoints"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metadata" id="metadata"></div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+        
+        async function loadHealthData() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const content = document.getElementById('content');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            content.style.display = 'none';
+            
+            try {
+                // Call HTTP Gateway's system health endpoint
+                const response = await fetch('http://localhost:8092/api/system/health');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const gatewayResponse = await response.json();
+                const data = gatewayResponse.data; // Extract data from gateway response
+                renderHealthData(data);
+                
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+            } catch (err) {
+                loading.style.display = 'none';
+                error.style.display = 'block';
+                error.innerHTML = `<strong>❌ Health check failed:</strong><br>${err.message}`;
+            }
+        }
+        
+        function renderHealthData(data) {
+            renderSummary(data.summary);
+            renderContainers(data.containers);
+            renderAgents(data.agents);
+            renderRedis(data.redis);
+            renderEndpoints(data.endpoints);
+            renderMetadata(data);
+        }
+        
+        function renderSummary(summary) {
+            const summaryEl = document.getElementById('summary');
+            summaryEl.innerHTML = `
+                <div class="summary-card">
+                    <h3>Containers</h3>
+                    <div class="value">${summary.containersRunning}/${summary.containersExpected}</div>
+                    <div>Running</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Agents</h3>
+                    <div class="value">${summary.agentsRunning}/${summary.agentsExpected}</div>
+                    <div>Running</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Redis</h3>
+                    <div class="value">${summary.redisConnected ? '✅' : '❌'}</div>
+                    <div>Connected</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Endpoints</h3>
+                    <div class="value">${summary.endpointsAccessible}/3</div>
+                    <div>Accessible</div>
+                </div>
+            `;
+        }
+        
+        function renderContainers(containers) {
+            const containersEl = document.getElementById('containers');
+            containersEl.innerHTML = containers.map(container => `
+                <div class="status-item ${container.running ? 'running' : 'stopped'}">
+                    <div>
+                        <strong>${container.name}</strong>
+                        <div style="font-size: 0.9rem; opacity: 0.8;">${container.ports || 'No ports'}</div>
+                    </div>
+                    <span class="status-badge ${container.running ? 'running' : 'stopped'}">
+                        ${container.running ? '✅ Running' : '❌ Stopped'}
+                    </span>
+                </div>
+            `).join('');
+        }
+        
+        function renderAgents(agents) {
+            const agentsEl = document.getElementById('agents');
+            agentsEl.innerHTML = agents.map(agent => `
+                <div class="status-item ${agent.running ? 'running' : 'stopped'}">
+                    <div>
+                        <strong>${agent.name}</strong>
+                    </div>
+                    <span class="status-badge ${agent.running ? 'running' : 'stopped'}">
+                        ${agent.running ? '✅ Running' : '❌ Not Running'}
+                    </span>
+                </div>
+            `).join('');
+        }
+        
+        function renderRedis(redis) {
+            const redisEl = document.getElementById('redis');
+            
+            if (!redis.connected) {
+                redisEl.innerHTML = `
+                    <div class="error">
+                        <strong>❌ Redis Connection Failed</strong><br>
+                        ${redis.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            redisEl.innerHTML = `
+                <div class="status-item running">
+                    <strong>✅ Redis Connected</strong>
+                    <span class="status-badge running">Ping: ${redis.ping}</span>
+                </div>
+                <div class="redis-streams">
+                    ${Object.entries(redis.streams).map(([stream, length]) => `
+                        <div class="stream-card">
+                            <div class="stream-name">${stream}</div>
+                            <div class="stream-length">${length} entries</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function renderEndpoints(endpoints) {
+            const endpointsEl = document.getElementById('endpoints');
+            endpointsEl.innerHTML = endpoints.map(endpoint => `
+                <div class="status-item ${endpoint.accessible ? 'running' : 'stopped'}">
+                    <div>
+                        <strong>${endpoint.name}</strong>
+                        <div style="font-size: 0.9rem; opacity: 0.8;">${endpoint.url}</div>
+                    </div>
+                    <span class="status-badge ${endpoint.accessible ? 'running' : 'stopped'}">
+                        ${endpoint.accessible ? `✅ ${endpoint.status}` : `❌ ${endpoint.error || 'Failed'}`}
+                    </span>
+                </div>
+            `).join('');
+        }
+        
+        function renderMetadata(data) {
+            const metadataEl = document.getElementById('metadata');
+            metadataEl.innerHTML = `
+                Last updated: ${new Date(data.timestamp).toLocaleString()}<br>
+                Check duration: ${data.check_duration}ms<br>
+                Data source: HTTP Gateway (port 8092)
+            `;
+        }
+        
+        function toggleAutoRefresh() {
+            const statusEl = document.getElementById('autoStatus');
+            
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                statusEl.textContent = 'Off';
+            } else {
+                autoRefreshInterval = setInterval(loadHealthData, 10000); // 10 seconds
+                statusEl.textContent = 'On (10s)';
+            }
+        }
+        
+        // Load initial data
+        loadHealthData();
+    </script>
+</body>
+</html>
