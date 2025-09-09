@@ -84,12 +84,13 @@ active_agents:
     location: "agents/AGT-BOOTSTRAP-1__genesis/"
     type: "ephemeral"
     
-  - id: "AGT-NAMING-1" 
-    status: "enhanced_with_semantic_namespace_allocation"
-    location: "agents/AGT-NAMING-1__01K4EAF1/"
-    capabilities: ["allocate_capability", "allocate_module", "allocate_namespace", "manage_sequences"]
-    integrations: ["Redis:6380"]
+  - id: "AGT-NAMING-2" 
+    status: "template_based_naming_authority_operational"
+    location: "agents/AGT-NAMING-2__naming2/"
+    capabilities: ["allocate_capability", "allocate_module", "allocate_function", "allocate_session", "allocate_namespace", "validate_name", "manage_sequences"]
+    integrations: ["Redis:6380", "Unix-Socket:/tmp/agt-naming-2.sock"]
     type: "persistent"
+    architecture: "template_based"
     
   - id: "AGT-STRUCT-1"
     status: "tested_working_with_redis"
@@ -251,6 +252,9 @@ current_session_achievements:
   - "Portainer password recovery: Official reset procedure executed successfully"
   - "Transformers container analysis: Containerized approach confirmed optimal for isolation"
   - "COMPLETE: AGT-STACK-1 operational for container orchestration and profile management"
+  - "COMPLETE: AGT-NAMING-2 template-based replacement operational - full behavioral equivalence with enhanced capabilities"
+  - "Template-based agent refactoring methodology validated: duplicate→validate→destroy approach successful"
+  - "Legacy AGT-NAMING-1 completely removed after successful behavioral equivalence testing"
   - "Stack Agent Implementation: Docker Compose profile management with Redis pub/sub integration"
   - "Profile Operations: start_profile, stop_profile, profile_status, list_profiles, container_status"
   - "Container Discovery: Automatic detection of running containers and profile mapping"

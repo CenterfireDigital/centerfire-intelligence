@@ -14,7 +14,7 @@ type CAP-TEST-2 struct {
 func NewCAP-TEST-2() *CAP-TEST-2 {
 	return &CAP-TEST-2{
 		Name: "CAP-TEST-2",
-		CID:  "cid:centerfire:capability:17571740",
+		CID:  "cid:centerfire:capability:17573846",
 	}
 }
 

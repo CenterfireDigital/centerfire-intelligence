@@ -104,7 +104,15 @@
       "Bash(pgrep:*)",
       "Bash(./quick-start.sh:*)",
       "Bash(tmux new-session:*)",
-      "Bash(tmux send-keys:*)"
+      "Bash(tmux send-keys:*)",
+      "Bash(node:*)",
+      "Bash(./monitoring/simple-integrity-check.sh:*)",
+      "Bash(./manager)",
+      "Bash(grafana/grafana:latest)",
+      "Bash(python:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(tmux kill-session:*)"
     ],
     "deny": [],
     "ask": []

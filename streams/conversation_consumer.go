@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -128,7 +129,7 @@ func (cc *ConversationConsumer) processConversationMessage(message redis.XMessag
 	
 	// Store in Weaviate and Neo4j
 	cc.storeInWeaviate(convData)
-	cc.simulateNeo4jStorage(convData)
+	cc.createNeo4jRelationships(convData)
 }
 
 func (cc *ConversationConsumer) storeInWeaviate(data ConversationData) {
@@ -163,15 +164,69 @@ func (cc *ConversationConsumer) storeInWeaviate(data ConversationData) {
 	log.Printf("🔍 Weaviate: Stored conversation for %s (turn %d)", data.SessionID, data.TurnCount)
 }
 
-func (cc *ConversationConsumer) simulateNeo4jStorage(data ConversationData) {
-	// Simulate Neo4j relationship storage
-	log.Printf("🔗 [SIMULATED] Neo4j: Created conversation node for %s → %s", data.AgentID, data.SessionID)
+func (cc *ConversationConsumer) createNeo4jRelationships(data ConversationData) {
+	// Use Neo4j HTTP API (v5.x compatible)
+	cypher := `
+	MERGE (session:Session {id: $session_id})
+	MERGE (agent:Agent {id: $agent_id})
+	CREATE (conversation:Conversation {
+		id: $conv_id,
+		timestamp: $timestamp,
+		turn_count: $turn_count,
+		user_message: $user_message,
+		assistant_message: $assistant_message
+	})
+	MERGE (session)-[:HAS_CONVERSATION]->(conversation)
+	MERGE (agent)-[:PARTICIPATED_IN]->(conversation)
+	MERGE (agent)-[:INTERACTED_WITH]->(session)
+	`
 	
-	// In real implementation:
-	// - Create conversation node
-	// - Link to session/client nodes
-	// - Extract entities and create relationships
-	// - Connect to semantic graph
+	payload := map[string]interface{}{
+		"statements": []map[string]interface{}{
+			{
+				"statement": cypher,
+				"parameters": map[string]interface{}{
+					"session_id":         data.SessionID,
+					"agent_id":           data.AgentID, 
+					"conv_id":           fmt.Sprintf("%s-%d", data.SessionID, data.TurnCount),
+					"timestamp":         data.Timestamp,
+					"turn_count":        data.TurnCount,
+					"user_message":      data.User,
+					"assistant_message": data.Assistant,
+				},
+			},
+		},
+	}
+
+	jsonPayload, _ := json.Marshal(payload)
+	
+	// Create HTTP request with authentication
+	req, err := http.NewRequest("POST", "http://localhost:7474/db/neo4j/tx/commit", strings.NewReader(string(jsonPayload)))
+	if err != nil {
+		log.Printf("🔗 ❌ Neo4j: Request creation failed for %s → %s: %v", data.AgentID, data.SessionID, err)
+		return
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Basic bmVvNGo6bXlfc2VjdXJlX3Bhc3N3b3JkMTIz") // neo4j:my_secure_password123 in base64
+	
+	// Execute request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	
+	if err != nil {
+		log.Printf("🔗 ❌ Neo4j: Connection failed for %s → %s: %v", data.AgentID, data.SessionID, err)
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("🔗 ❌ Neo4j: Failed to create relationships for %s → %s (status %d): %s", 
+			data.AgentID, data.SessionID, resp.StatusCode, string(body))
+	} else {
+		log.Printf("🔗 ✅ Neo4j: Created conversation relationships for %s → %s", data.AgentID, data.SessionID)
+	}
 }
 
 // createConversationSchema creates the ConversationHistory schema in Weaviate

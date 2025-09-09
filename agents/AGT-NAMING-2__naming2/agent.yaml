@@ -1,0 +1,36 @@
+# AGT-NAMING-2 Configuration - Template-based Naming Authority Agent
+
+# Core Identity
+agent_id: "AGT-NAMING-2"
+cid: "cid:centerfire:agent:naming002"
+friendly_name: "Naming Authority Agent v2"
+namespace: "centerfire.agents.naming"
+
+# Agent Classification  
+language: "go"
+agent_type: "service"
+capabilities: 
+  - "allocate_capability"
+  - "allocate_module"
+  - "allocate_function"
+  - "allocate_session"
+  - "allocate_namespace"
+  - "validate_name"
+  - "manage_sequences"
+
+# Communication - Redis for backward compatibility + Unix socket for new architecture
+communication:
+  redis_channels: ["agent.naming.request", "agent.naming.response"]
+  unix_socket: "/tmp/agt-naming-2.sock"
+
+# Monitoring
+monitoring:
+  register_with_monitor: true
+  health_check_method: "file"
+  health_check_path: "/tmp/agt-naming-2.health"
+
+# Logging (all goes to Claude Capture)
+logging:
+  send_to_capture: true
+  level: "info"
+  include_namespace: true

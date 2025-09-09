@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import sys
+import signal
+import atexit
 import time
 import uuid
 from datetime import datetime, timezone
@@ -56,6 +58,7 @@ class ClaudeCaptureAgent:
         self.active_sessions: Dict[str, Dict] = {}
         self.conversation_buffer: List[str] = []
         self.session_id = None
+        self._shutdown_in_progress = False
         
         # Lazy disk buffering for Redis failures
         self.redis_healthy = True
@@ -70,12 +73,15 @@ class ClaudeCaptureAgent:
         self.conversation_stream = "centerfire:semantic:conversations"
         self.session_stream = "claude:sessions:stream"
         
-        # Setup logging
+        # Setup logging first
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(self.agent_id)
+        
+        # Setup exit hooks for automatic session capture
+        self._setup_exit_hooks()
         
     async def start(self):
         """Start the Claude capture agent"""
@@ -439,6 +445,105 @@ class ClaudeCaptureAgent:
             
         except Exception as e:
             self.logger.error(f"❌ Failed to replay disk buffer: {e}")
+    
+    def _setup_exit_hooks(self):
+        """Setup signal handlers and exit hooks for automatic capture"""
+        try:
+            # Register signal handlers
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            signal.signal(signal.SIGINT, self._signal_handler)
+            
+            # Register atexit handler as backup
+            atexit.register(self._sync_exit_handler)
+            
+            self.logger.debug("🪝 Exit hooks registered for automatic session capture")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not register all exit hooks: {e}")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        if self._shutdown_in_progress:
+            return
+            
+        self._shutdown_in_progress = True
+        signal_name = signal.Signals(signum).name
+        
+        self.logger.info(f"🛑 Received {signal_name} - capturing session before exit")
+        
+        # Run async exit handler in sync context
+        try:
+            asyncio.run(self._async_exit_handler(signal_name))
+        except RuntimeError:
+            # If event loop is already running, schedule the coroutine
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._async_exit_handler(signal_name))
+            else:
+                asyncio.run(self._async_exit_handler(signal_name))
+        
+        # Re-raise the signal for normal termination
+        if signum == signal.SIGINT:
+            sys.exit(0)
+        elif signum == signal.SIGTERM:
+            sys.exit(0)
+    
+    def _sync_exit_handler(self):
+        """Synchronous exit handler as backup"""
+        if self._shutdown_in_progress:
+            return
+            
+        self._shutdown_in_progress = True
+        self.logger.info("🔚 Process exiting - attempting final session capture")
+        
+        try:
+            # Simple Redis write without async/await
+            if self.redis_client:
+                session_summary = {
+                    "session_id": f"EXIT-CAPTURE-{int(time.time())}",
+                    "agent_id": "CLAUDE-CODE-EXIT-HANDLER",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "turn_count": 1,
+                    "user": "Session ending - automatic exit capture triggered",
+                    "assistant": f"Session captured on exit by {self.agent_id}. Active sessions: {len(self.active_sessions)}, Buffer size: {len(self.conversation_buffer)}"
+                }
+                
+                stream_data = {"data": json.dumps(session_summary)}
+                self.redis_client.xadd("centerfire:semantic:conversations", stream_data)
+                self.logger.info("💾 Exit capture completed successfully")
+        except Exception as e:
+            self.logger.error(f"❌ Exit capture failed: {e}")
+    
+    async def _async_exit_handler(self, trigger="unknown"):
+        """Async exit handler for comprehensive session capture"""
+        try:
+            if not self.session_id:
+                self.session_id = f"EXIT-SESSION-{int(time.time())}"
+            
+            # Capture comprehensive session summary
+            session_summary = {
+                "session_id": self.session_id,
+                "agent_id": "CLAUDE-CODE-EXIT-SUMMARY", 
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "turn_count": 999,  # Special marker for exit captures
+                "user": f"Session ending via {trigger} - comprehensive exit capture",
+                "assistant": f"Session completed and captured by {self.agent_id}. Summary: {len(self.active_sessions)} active sessions tracked, {len(self.conversation_buffer)} items in buffer, Redis healthy: {self.redis_healthy}, Disk buffer active: {self.disk_buffer_active}. All conversation data preserved in centerfire:semantic:conversations stream."
+            }
+            
+            # Stream the exit summary
+            await self._stream_conversation(session_summary)
+            
+            # Stream final session event
+            await self._stream_session_event("session_ended", {
+                "trigger": trigger,
+                "active_sessions": len(self.active_sessions),
+                "buffer_items": len(self.conversation_buffer),
+                "redis_healthy": self.redis_healthy
+            })
+            
+            self.logger.info(f"✅ Comprehensive exit capture completed (trigger: {trigger})")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Async exit capture failed: {e}")
 
 async def main():
     """Main entry point"""

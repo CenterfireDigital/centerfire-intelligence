@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -53,7 +54,7 @@ func NewClickHouseConsumer() *ClickHouseConsumer {
 		httpClient:    httpClient,
 		clickhouseURL: "http://centerfire:@localhost:8123",
 		batchSize:     100,          // Process 100 conversations at once
-		batchTimeout:  5 * time.Minute, // Max wait time before processing batch
+		batchTimeout:  30 * time.Second, // Max wait time before processing batch
 		isClickHouseUp: false,
 	}
 }
@@ -139,6 +140,15 @@ func (cc *ClickHouseConsumer) insertBatch(conversations []ConversationData) erro
 		timestamp := conv.Timestamp
 		if timestamp == "" {
 			timestamp = time.Now().Format("2006-01-02 15:04:05.000")
+		} else {
+			// Convert ISO format to ClickHouse format
+			if strings.Contains(timestamp, "T") {
+				timestamp = strings.ReplaceAll(timestamp, "T", " ")
+				timestamp = strings.ReplaceAll(timestamp, "Z", "")
+				if len(timestamp) == 19 { // No milliseconds
+					timestamp += ".000"
+				}
+			}
 		}
 
 		// Escape single quotes in strings
@@ -155,6 +165,8 @@ func (cc *ClickHouseConsumer) insertBatch(conversations []ConversationData) erro
 		VALUES %s
 	`, strings.Join(values, ","))
 
+	log.Printf("🔍 Executing SQL: %s", insertSQL)
+
 	resp, err := cc.httpClient.Post(
 		cc.clickhouseURL,
 		"text/plain",
@@ -166,7 +178,8 @@ func (cc *ClickHouseConsumer) insertBatch(conversations []ConversationData) erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("failed to insert batch: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to insert batch: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	log.Printf("🧊 ClickHouse: Stored %d conversations in cold storage", len(conversations))
@@ -193,6 +206,7 @@ func (cc *ClickHouseConsumer) startConsuming() {
 
 		default:
 			// Try to read messages
+			log.Printf("🔍 Reading from stream...")
 			streams, err := cc.redisClient.XReadGroup(cc.ctx, &redis.XReadGroupArgs{
 				Group:    cc.consumerGroup,
 				Consumer: cc.consumerName,
@@ -203,16 +217,23 @@ func (cc *ClickHouseConsumer) startConsuming() {
 
 			if err != nil {
 				if err != redis.Nil {
-					log.Printf("Error reading from stream: %v", err)
+					log.Printf("❌ Error reading from stream: %v", err)
 					time.Sleep(5 * time.Second)
+				} else {
+					log.Printf("⏰ No messages available (redis.Nil)")
 				}
 				continue
 			}
 
+			log.Printf("📥 Got %d streams", len(streams))
+
 			// Process messages into batch
 			for _, stream := range streams {
+				log.Printf("📥 Stream has %d messages", len(stream.Messages))
 				for _, message := range stream.Messages {
+					log.Printf("🔍 Parsing message: %s", message.ID)
 					if conv := cc.parseMessage(message); conv != nil {
+						log.Printf("✅ Successfully parsed message for %s", conv.SessionID)
 						batch = append(batch, *conv)
 
 						// Acknowledge message immediately
@@ -227,6 +248,9 @@ func (cc *ClickHouseConsumer) startConsuming() {
 					}
 				}
 			}
+			
+			// Prevent busy loop when no messages are available
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }

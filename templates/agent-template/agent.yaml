@@ -1,0 +1,38 @@
+# Minimal Agent Configuration Template
+# Based on existing patterns in AGT-CLAUDE-CAPTURE-1 and manager registration
+
+# Core Identity
+agent_id: "AGT-{{TYPE}}-{{VERSION}}"
+cid: "cid:centerfire:agent:{{INSTANCE_ID}}"
+friendly_name: "{{FRIENDLY_NAME}}"
+namespace: "centerfire.agents.{{type}}"
+
+# Agent Classification  
+language: "{{go|python|nodejs}}"
+agent_type: "{{persistent|ephemeral|service}}"
+capabilities: 
+  - "{{primary_function}}"
+  # Add specific capabilities this agent provides
+
+# Hierarchy (optional)
+parent_agent: "{{AGT-PARENT-1}}"  # Remove if standalone agent
+child_agents: []  # List of child agents this spawns
+
+# Communication (minimal - only what agent needs)
+communication:
+  # Most agents use unix sockets - only add if needed
+  redis_channels: []  # Only if agent needs Redis pub/sub
+  http_port: null     # Only if agent serves HTTP
+  unix_socket: "{{/tmp/agt-type-instance.sock}}"  # Default for local comm
+
+# Monitoring
+monitoring:
+  register_with_monitor: true
+  health_check_method: "{{file|http|process}}"  # Simplest method for this agent
+  health_check_path: "{{/tmp/agt-type.health}}"  # If file-based
+
+# Logging (all goes to Claude Capture)
+logging:
+  send_to_capture: true
+  level: "info"
+  include_namespace: true
