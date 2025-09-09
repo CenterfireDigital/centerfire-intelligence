@@ -1,0 +1,39 @@
+# Template-based Structure Management Agent v2
+# Based on existing patterns in AGT-STRUCT-1 with enhanced template architecture
+
+# Core Identity
+agent_id: "AGT-STRUCT-2"
+cid: "cid:centerfire:agent:struct002"
+friendly_name: "Structure Management Agent v2"
+namespace: "centerfire.agents.struct"
+
+# Agent Classification  
+language: "go"
+agent_type: "persistent"
+capabilities: 
+  - "create_structure"
+  - "delegate_documentation"
+
+# Hierarchy (optional)
+parent_agent: ""  # Standalone agent
+child_agents: []  # List of child agents this spawns
+
+# Communication (minimal - only what agent needs)
+communication:
+  redis_channels: 
+    - "agent.struct.request"
+    - "agent.struct.response"
+  http_port: null     # Only if agent serves HTTP
+  unix_socket: "/tmp/agt-struct-2.sock"  # Default for local comm
+
+# Monitoring
+monitoring:
+  register_with_monitor: true
+  health_check_method: "file"  # Simplest method for this agent
+  health_check_path: "/tmp/agt-struct-2.health"  # If file-based
+
+# Logging (all goes to Claude Capture)
+logging:
+  send_to_capture: true
+  level: "info"
+  include_namespace: true

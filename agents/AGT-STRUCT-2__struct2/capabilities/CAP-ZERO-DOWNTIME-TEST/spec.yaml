@@ -1,0 +1,13 @@
+name: CAP-ZERO-DOWNTIME-TEST
+cid: cid:test:downtime:001
+type: capability
+template: default
+created: 2025-09-09T10:50:12Z
+description: "Auto-generated capability specification"
+
+# Capability specification
+spec:
+  domain: ""
+  purpose: ""
+  dependencies: []
+  interfaces: []

@@ -466,12 +466,12 @@ func (am *AgentManager) handleSessionRestore(request AgentRequest) {
 // Agent Registry Management
 func (am *AgentManager) initializeAgentRegistry() {
 	// Register known persistent agents
-	am.agentRegistry["AGT-NAMING-1"] = &AgentDefinition{
-		Name:        "AGT-NAMING-1",
-		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-NAMING-1__01K4EAF1",
+	am.agentRegistry["AGT-NAMING-2"] = &AgentDefinition{
+		Name:        "AGT-NAMING-2",
+		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-NAMING-2__naming2",
 		Type:        PersistentAgent,
-		Capabilities: []string{"allocate_capability", "allocate_module", "allocate_namespace", "manage_sequences"},
-		Description: "Core naming and identifier allocation service",
+		Capabilities: []string{"allocate_capability", "allocate_session", "allocate_namespace", "manage_sequences"},
+		Description: "Template-based naming authority agent with enhanced capabilities",
 		AutoShutdown: false,
 		MaxRuntime:  0, // unlimited
 		Dependencies: []ServiceDependency{
@@ -506,17 +506,17 @@ func (am *AgentManager) initializeAgentRegistry() {
 		},
 	}
 	
-	am.agentRegistry["AGT-STRUCT-1"] = &AgentDefinition{
-		Name:        "AGT-STRUCT-1",
-		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-STRUCT-1__01K4EAF1",
+	am.agentRegistry["AGT-STRUCT-2"] = &AgentDefinition{
+		Name:        "AGT-STRUCT-2",
+		Directory:   "/Users/larrydiffey/projects/CenterfireIntelligence/agents/AGT-STRUCT-2__struct2",
 		Type:        PersistentAgent,
 		Capabilities: []string{"create_structure", "delegate_documentation"},
-		Description: "Core directory and file structure management service",
+		Description: "Template-based directory and file structure management service",
 		AutoShutdown: false,
 		MaxRuntime:  0,
 		Dependencies: []ServiceDependency{
 			{Service: "redis", Type: "infrastructure", Endpoint: "localhost:6380", Critical: true, RetryCount: 3, RetryDelay: 5},
-			{Service: "AGT-NAMING-1", Type: "agent", Endpoint: "centerfire:agent:naming", Critical: true, RetryCount: 2, RetryDelay: 3},
+			{Service: "AGT-NAMING-2", Type: "agent", Endpoint: "centerfire:agent:naming", Critical: true, RetryCount: 2, RetryDelay: 3},
 		},
 	}
 	
@@ -710,9 +710,9 @@ func (am *AgentManager) handleGetAgentDefinition(request AgentRequest) {
 func (am *AgentManager) getSingletonAgents() map[string]bool {
 	// Define which agents should have only one instance running
 	return map[string]bool{
-		"AGT-NAMING-1":   true, // Core naming service - must be singleton
+		"AGT-NAMING-2":   true, // Core naming service - must be singleton
 		"AGT-SEMANTIC-1": true, // Core semantic service - must be singleton  
-		"AGT-STRUCT-1":   true, // Core structure service - must be singleton
+		"AGT-STRUCT-2":   true, // Core structure service - must be singleton
 		"AGT-MANAGER-1":  true, // Manager itself - must be singleton
 	}
 }
